@@ -63,6 +63,21 @@ func (m *Matcher) Feed(key Key) []Command {
 func (m *Matcher) Pending() bool { return len(m.pending) != 0 || m.count != 0 }
 func (m *Matcher) Cancel()       { m.pending, m.count = nil, 0 }
 
+// DrainLiteral settles prompt text before bracketed paste without executing a
+// pending shortcut (in particular, an ambiguous accept/cancel binding).
+func (m *Matcher) DrainLiteral() []Command {
+	var commands []Command
+	if m.insert {
+		for _, key := range m.pending {
+			if !strings.HasPrefix(string(key), "<") || key == "<" {
+				commands = append(commands, Command{Action: Insert, Text: string(key)})
+			}
+		}
+	}
+	m.Cancel()
+	return commands
+}
+
 // NeedsTimeout reports whether pending input includes a completed binding that
 // could fire instead of a longer sequence. A bare "g" in "gg" has no action to
 // fall back to, so it should wait rather than time out and disappear.

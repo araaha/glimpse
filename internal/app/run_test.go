@@ -271,6 +271,57 @@ func TestRunPasteDoesNotExecuteBindings(t *testing.T) {
 	viewer.expectExit(t)
 }
 
+func TestRunBackwardPreviewAcceptUsesOriginalOrigin(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{IncrementalSearch: true}, "first hit\ngap\nsecond hit\nlast\nend", 20, 2)
+	viewer.press("G")
+	waitFrame(t, viewer.frames, firstFrameLine("last"))
+	viewer.press("?")
+	viewer.typeText("hit")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.SearchActive && firstFrameLine("second hit")(frame) })
+	viewer.press("<Enter>")
+	frame := waitFrame(t, viewer.frames, searchFrame("?hit", false))
+	if !firstFrameLine("second hit")(frame) {
+		t.Fatalf("accept skipped preview: %q", frame.Lines)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunCommandNavigationClearsSearchAnchor(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{}, "first hit\ngap\nsecond hit\ngap\nthird hit\nend", 20, 2)
+	viewer.press("/")
+	viewer.typeText("hit")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("/hit", false))
+	viewer.press("n")
+	waitFrame(t, viewer.frames, firstFrameLine("second hit"))
+	viewer.press(":")
+	viewer.typeText("top")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, firstFrameLine("first hit"))
+	viewer.press("n")
+	frame := waitFrame(t, viewer.frames, searchFrame("/hit", false))
+	if !firstFrameLine("first hit")(frame) {
+		t.Fatalf("command left stale search anchor: %q", frame.Lines)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunPasteSettlesPendingLiteralPrefix(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"search-left": {"j", "j"}, "search-accept": {"j"}}}, "one\ntwo", 12, 2)
+	viewer.press("/", "j")
+	viewer.screen.EventQ() <- tcell.NewEventPaste(true)
+	viewer.typeText("abc")
+	viewer.screen.EventQ() <- tcell.NewEventPaste(false)
+	waitFrame(t, viewer.frames, searchFrame("/jabc", true))
+	viewer.press("<Esc>", "q")
+	viewer.expectExit(t)
+}
+
 func TestRunSearchHistoryFailureIsNonfatal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

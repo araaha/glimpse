@@ -221,6 +221,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			case keybind.Accept:
 				query := string(search.prompt.text)
 				backward := search.prompt.backward
+				origin := search.prompt.origin
 				isCommand := search.prompt.command
 				search.prompt = nil
 				a.SearchKeys.Cancel()
@@ -234,11 +235,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 						}
 						search.message = result.message
 						if result.line > 0 {
+							search.matched = false
 							if err := text.Update(layout.Body.Width, !reading); err != nil {
 								return false, err
 							}
 							view.top = text.LineRow(result.line)
 						} else if result.action != "" {
+							search.matched = false
 							view.apply(result.action, text.RowCount(), layout.Body.Height)
 						}
 						if query != "" {
@@ -261,7 +264,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 				search.query, search.backward, search.matched = query, backward, false
 				view.follow, view.bottom = false, false
-				search.start(ctx, a.Document, text.Offset(view.top), backward, a.SmartCase, a.IgnoreCase, true)
+				search.start(ctx, a.Document, origin, backward, a.SmartCase, a.IgnoreCase, true)
 			default:
 				before := string(search.prompt.text)
 				search.prompt.edit(command)
@@ -339,6 +342,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			switch ev := event.(type) {
 			case *tcell.EventPaste:
+				if ev.Start() {
+					a.Keys.Cancel()
+					if search.prompt != nil {
+						if quit, err := applyPrompt(a.SearchKeys.DrainLiteral()); quit || err != nil {
+							return err
+						}
+					}
+				}
 				pasting = ev.Start()
 			case *tcell.EventResize:
 				screen.Sync()
