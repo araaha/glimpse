@@ -153,6 +153,35 @@ func TestTextRows(t *testing.T) {
 	}
 }
 
+func TestTextLineRow(t *testing.T) {
+	for _, input := range []string{"", "abcdefgh\r\n\n界界界\nx", "abcdefgh\r\n\n界界界\nx\n"} {
+		doc := pager.NewDocumentWithChunkSize(3)
+		text := NewText(doc)
+		// Incremental writes must also build the logical-line index correctly.
+		for _, r := range input {
+			doc.Write([]byte(string(r)))
+			if err := text.Update(3, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, width := range []int{3, 8, 1} {
+			if err := text.Update(width, true); err != nil {
+				t.Fatal(err)
+			}
+			offsets := []int64{0, 10, 11, 21}
+			if input == "" {
+				offsets = []int64{0}
+			}
+			for _, line := range []int{0, 1, 2, 3, 4, 50} {
+				want := text.RowAt(offsets[min(max(line, 1), len(offsets))-1])
+				if got := text.LineRow(line); got != want {
+					t.Fatalf("input %q, width %d, line %d: row = %d, want %d", input, width, line, got, want)
+				}
+			}
+		}
+	}
+}
+
 func TestTextAppendsWithoutNewline(t *testing.T) {
 	doc := pager.NewDocument()
 	text := NewText(doc)

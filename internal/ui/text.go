@@ -21,12 +21,13 @@ type TextSource interface {
 // logical lines. An unfinished line is available immediately. Resizing rebuilds
 // the row index; full grapheme-aware reflow and ANSI styling are future work.
 type Text struct {
-	source  TextSource
-	starts  []int64
-	scanned int64
-	width   int
-	column  int
-	buffer  [64 * 1024]byte
+	source     TextSource
+	starts     []int64
+	lineStarts []int64
+	scanned    int64
+	width      int
+	column     int
+	buffer     [64 * 1024]byte
 }
 
 func NewText(source TextSource) *Text { return &Text{source: source} }
@@ -39,6 +40,7 @@ func (t *Text) Update(width int, complete bool) error {
 	if t.width != width {
 		t.width, t.column, t.scanned = width, 0, 0
 		t.starts = []int64{0}
+		t.lineStarts = []int64{0}
 	}
 	end := t.source.Len()
 	for t.scanned < end {
@@ -70,6 +72,7 @@ func (t *Text) Update(width int, complete bool) error {
 func (t *Text) addRune(r rune, offset int64, size int) {
 	if r == '\n' {
 		t.starts = append(t.starts, offset+int64(size))
+		t.lineStarts = append(t.lineStarts, offset+int64(size))
 		t.column = 0
 		return
 	}
@@ -115,6 +118,19 @@ func (t *Text) Offset(row int) int64 {
 // RowAt preserves the approximate byte position when the screen is resized.
 func (t *Text) RowAt(offset int64) int {
 	return max(0, sort.Search(len(t.starts), func(i int) bool { return t.starts[i] > offset })-1)
+}
+
+// LineRow returns the first wrapped row of a one-based logical line. Requests
+// beyond the available input clamp to the last line, ignoring a final newline.
+func (t *Text) LineRow(line int) int {
+	count := len(t.lineStarts)
+	if count > 0 && t.lineStarts[count-1] == t.scanned {
+		count--
+	}
+	if count == 0 {
+		return 0
+	}
+	return t.RowAt(t.lineStarts[min(max(1, line), count)-1])
 }
 
 func (t *Text) Lines(top, height int) ([]string, error) {
