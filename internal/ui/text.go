@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"sort"
@@ -118,48 +119,86 @@ func (t *Text) RowAt(offset int64) int {
 
 func (t *Text) Lines(top, height int) ([]string, error) {
 	var lines []string
+	var reader *bufio.Reader
 	for row := max(0, top); row < t.RowCount() && len(lines) < height; row++ {
 		end := t.scanned
 		if row+1 < len(t.starts) {
 			end = t.starts[row+1]
 		}
-		// Bound allocations even for a pathological row containing many
-		// zero-width characters. Never materialize an entire growing line.
-		length := int(min(end-t.starts[row], int64(max(256, t.width*16))))
-		data := make([]byte, length)
-		n, err := t.source.ReadAt(data, t.starts[row])
-		if err != nil && !errors.Is(err, io.EOF) {
+		section := io.NewSectionReader(t.source, t.starts[row], end-t.starts[row])
+		if reader == nil {
+			reader = bufio.NewReaderSize(section, 4096)
+		} else {
+			reader.Reset(section)
+		}
+		line, err := t.readLine(reader)
+		if err != nil {
 			return nil, err
 		}
-		var line strings.Builder
-		column := 0
-		for _, r := range string(data[:n]) {
-			if r == '\n' {
-				break
-			}
-			if r == '\r' {
-				continue
-			}
-			if r == '\t' {
-				spaces := min(8-column%8, t.width-column)
-				line.WriteString(strings.Repeat(" ", spaces))
-				column += spaces
-				continue
-			}
-			if unicode.IsControl(r) {
-				r = utf8.RuneError // Show controls instead of executing escapes.
-			}
-			w := runeWidth(r)
-			if w > 0 && column+w > t.width {
-				if column == 0 { // A wide character in a one-column terminal.
-					line.WriteRune(utf8.RuneError)
-				}
-				break
-			}
-			line.WriteRune(r)
-			column += w
-		}
-		lines = append(lines, line.String())
+		lines = append(lines, line)
 	}
 	return lines, nil
+}
+
+func (t *Text) readLine(reader *bufio.Reader) (string, error) {
+	var line strings.Builder
+	column := 0
+	maxBytes := max(256, t.width*16)
+	// Limit retained zero-width text, not bytes scanned before visible cells.
+	// Reserve enough space for every remaining cell even after a long span of
+	// combining marks. Ignored carriage returns consume no output budget.
+	zeroWidthBudget := maxBytes - t.width*utf8.UTFMax
+	suffixBudget := maxBytes
+	for {
+		r, size, err := reader.ReadRune()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if r == '\n' {
+			break
+		}
+		if column >= t.width {
+			// The visible cells are full; retain only a bounded combining
+			// suffix rather than scanning an arbitrarily long invisible tail.
+			suffixBudget -= size
+			if suffixBudget < 0 {
+				break
+			}
+		}
+		if r == '\r' {
+			continue
+		}
+		if r == '\t' {
+			spaces := min(8-column%8, t.width-column)
+			line.WriteString(strings.Repeat(" ", spaces))
+			column += spaces
+			continue
+		}
+		if unicode.IsControl(r) {
+			r = utf8.RuneError // Show controls instead of executing escapes.
+		}
+		w := runeWidth(r)
+		if w > 0 && column+w > t.width {
+			if column == 0 { // A wide character in a one-column terminal.
+				line.WriteRune(utf8.RuneError)
+			}
+			break
+		}
+		if w == 0 {
+			bytes := utf8.RuneLen(r)
+			if bytes > zeroWidthBudget {
+				if column >= t.width {
+					break
+				}
+				continue
+			}
+			zeroWidthBudget -= bytes
+		}
+		line.WriteRune(r)
+		column += w
+	}
+	return line.String(), nil
 }

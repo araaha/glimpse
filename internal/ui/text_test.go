@@ -1,12 +1,115 @@
 package ui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"glimpse/internal/pager"
 )
+
+func TestTextIgnoredBytesDoNotHideVisibleCells(t *testing.T) {
+	for _, prefixLength := range []int{255, 256, 257, 4095, 4096, 4097} {
+		t.Run(fmt.Sprint(prefixLength), func(t *testing.T) {
+			doc := pager.NewDocumentWithChunkSize(3)
+			text := NewText(doc)
+			for _, part := range []string{strings.Repeat("\r", prefixLength), "hel", "lo"} {
+				if _, err := doc.Write([]byte(part)); err != nil {
+					t.Fatal(err)
+				}
+				if err := text.Update(4, false); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, width := range []int{4, 3, 8} {
+				if err := text.Update(width, true); err != nil {
+					t.Fatal(err)
+				}
+				got, err := text.Lines(0, 10)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var want []string
+				for rest := "hello"; len(rest) > 0; {
+					n := min(width, len(rest))
+					want = append(want, rest[:n])
+					rest = rest[n:]
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("width %d: lines = %q, want %q", width, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestTextLongZeroWidthSpanKeepsVisibleSuffixBounded(t *testing.T) {
+	doc := pager.NewDocument()
+	doc.Write([]byte("a" + strings.Repeat("\u0301", 4096) + "bcde"))
+	text := NewText(doc)
+	if err := text.Update(4, true); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := text.Lines(0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || len(lines[0]) > max(256, 4*16) {
+		t.Fatalf("row output is not bounded: %d rows", len(lines))
+	}
+	visible := strings.ReplaceAll(lines[0], "\u0301", "")
+	if visible != "abcd" || lines[1] != "e" {
+		t.Fatalf("visible cells = %q, %q; want abcd, e", visible, lines[1])
+	}
+}
+
+func TestTextUTF8AfterIgnoredPrefixCrossesRowReadBoundary(t *testing.T) {
+	doc := pager.NewDocumentWithChunkSize(3)
+	doc.Write([]byte(strings.Repeat("\r", 4095) + "界e\u0301x"))
+	text := NewText(doc)
+	if err := text.Update(4, true); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := text.Lines(0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(lines, []string{"界e\u0301x"}) {
+		t.Fatalf("UTF-8 across the row buffer boundary = %q", lines)
+	}
+}
+
+type countedTextSource struct {
+	*pager.Document
+	readBytes int
+}
+
+func (s *countedTextSource) ReadAt(p []byte, offset int64) (int, error) {
+	n, err := s.Document.ReadAt(p, offset)
+	s.readBytes += n
+	return n, err
+}
+
+func TestTextFullRowDoesNotReadEntireInvisibleTail(t *testing.T) {
+	source := &countedTextSource{Document: pager.NewDocument()}
+	source.Write([]byte("abcd" + strings.Repeat("\r", 8192) + "\ne"))
+	text := NewText(source)
+	if err := text.Update(4, true); err != nil {
+		t.Fatal(err)
+	}
+	source.readBytes = 0
+	lines, err := text.Lines(0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(lines, []string{"abcd"}) {
+		t.Fatalf("full row = %q", lines)
+	}
+	if source.readBytes > 4096 {
+		t.Fatalf("read %d bytes after the visible row was already full", source.readBytes)
+	}
+}
 
 func TestTextRows(t *testing.T) {
 	tests := []struct {
