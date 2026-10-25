@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"slices"
 	"time"
 
 	"glimpse/internal/keybind"
@@ -84,11 +83,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		return nil
 	}
 	apply := func(actions []keybind.Action) bool {
-		// Cancel discards an unresolved shorter binding as well as its prefix.
-		// The key that invokes it is configurable like every other action.
-		if slices.Contains(actions, keybind.Cancel) {
-			a.Keys.Cancel()
-			return false
+		// Discard unresolved actions before cancellation, not commands retried
+		// afterward. The trie has already consumed the canceled prefix; any
+		// pending input now belongs to a new command and must be preserved.
+		for i := len(actions) - 1; i >= 0; i-- {
+			if actions[i] == keybind.Cancel {
+				actions = actions[i+1:]
+				break
+			}
 		}
 		for _, action := range actions {
 			if action == keybind.Quit {

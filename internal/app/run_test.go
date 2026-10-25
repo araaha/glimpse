@@ -15,6 +15,125 @@ import (
 	"github.com/gdamore/tcell/v3/vt"
 )
 
+type testViewer struct {
+	screen tcell.Screen
+	frames <-chan ui.Frame
+	result <-chan error
+}
+
+func startTestViewer(t *testing.T, options Options, input string, width, height int) testViewer {
+	t.Helper()
+	application, err := New(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: vt.Col(width), Y: vt.Row(height)}), tcell.OptNegotiation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 32)}
+	application.Renderer = recorder
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		result <- application.run(ctx, io.NopCloser(strings.NewReader(input)), "test", screen)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-stopped:
+		case <-time.After(3 * time.Second):
+			t.Error("viewer did not stop")
+		}
+	})
+	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
+		return len(frame.Lines) > 0 && !strings.Contains(frame.Status, "reading")
+	})
+	return testViewer{screen: screen, frames: recorder.frames, result: result}
+}
+
+func (v testViewer) press(keys ...string) {
+	for _, key := range keys {
+		if key == "<Esc>" {
+			v.screen.EventQ() <- tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)
+		} else {
+			v.screen.EventQ() <- tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)
+		}
+	}
+}
+
+func (v testViewer) expectExit(t *testing.T) {
+	t.Helper()
+	select {
+	case err := <-v.result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("viewer did not quit")
+	}
+}
+
+func firstFrameLine(line string) func(ui.Frame) bool {
+	return func(frame ui.Frame) bool { return len(frame.Lines) > 0 && frame.Lines[0] == line }
+}
+
+func TestRunCancelFallbackPreservesFollowingQuit(t *testing.T) {
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"cancel": {"g"}}}, "one\ntwo\nthree\nfour", 8, 2)
+	viewer.press("g", "q")
+	viewer.expectExit(t)
+}
+
+func TestRunCancelFallbackPreservesFollowingPrefix(t *testing.T) {
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{
+		"cancel": {"g"}, "quit": {"z", "q"},
+	}}, "one\ntwo\nthree\nfour", 8, 2)
+	viewer.press("g", "z", "q")
+	viewer.expectExit(t)
+}
+
+func TestRunCancelDiscardsShorterAmbiguousAction(t *testing.T) {
+	for _, cancelKey := range []string{"<Esc>", "x"} {
+		t.Run(cancelKey, func(t *testing.T) {
+			viewer := startTestViewer(t, Options{Keybinds: map[string][]string{
+				"up": {"g"}, "cancel": {cancelKey},
+			}}, "one\ntwo\nthree\nfour", 8, 2)
+			viewer.press("j")
+			waitFrame(t, viewer.frames, firstFrameLine("two"))
+			viewer.press("g", cancelKey)
+			viewer.screen.EventQ() <- tcell.NewEventResize(8, 2)
+			frame := waitFrame(t, viewer.frames, func(ui.Frame) bool { return true })
+			if !firstFrameLine("two")(frame) {
+				t.Fatalf("cancellation executed the shorter up action: %q", frame.Lines)
+			}
+			viewer.press("q")
+			viewer.expectExit(t)
+		})
+	}
+}
+
+func TestRunAmbiguousBindingTimesOut(t *testing.T) {
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"up": {"g"}}}, "one\ntwo\nthree\nfour", 8, 2)
+	viewer.press("G")
+	waitFrame(t, viewer.frames, firstFrameLine("three"))
+	viewer.press("g")
+	waitFrame(t, viewer.frames, firstFrameLine("two"))
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunAmbiguousBindingPrefersLongerSequence(t *testing.T) {
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"up": {"g"}}}, "one\ntwo\nthree\nfour\nfive\nsix", 8, 2)
+	viewer.press("G")
+	waitFrame(t, viewer.frames, firstFrameLine("five"))
+	viewer.press("g", "g")
+	waitFrame(t, viewer.frames, firstFrameLine("one"))
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
 type recordingRenderer struct {
 	terminal ui.Renderer
 	frames   chan ui.Frame
