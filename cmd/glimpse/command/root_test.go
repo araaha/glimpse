@@ -103,7 +103,7 @@ func TestRootLoadsFileAndKeySequence(t *testing.T) {
 		if got := application.Keys.Feed("t"); len(got) != 0 {
 			t.Fatal("first key fired the action")
 		}
-		if got := application.Keys.Feed("t"); len(got) != 1 || got[0] != keybind.Top {
+		if got := application.Keys.Feed("t"); len(got) != 1 || got[0].Action != keybind.Top {
 			t.Fatalf("configured sequence = %v", got)
 		}
 		return nil

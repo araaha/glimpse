@@ -82,22 +82,26 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		previousLength = length
 		return nil
 	}
-	apply := func(actions []keybind.Action) bool {
+	apply := func(actions []keybind.Command) bool {
 		// Discard unresolved actions before cancellation, not commands retried
 		// afterward. The trie has already consumed the canceled prefix; any
 		// pending input now belongs to a new command and must be preserved.
 		for i := len(actions) - 1; i >= 0; i-- {
-			if actions[i] == keybind.Cancel {
+			if actions[i].Action == keybind.Cancel {
 				actions = actions[i+1:]
 				break
 			}
 		}
-		for _, action := range actions {
+		for _, command := range actions {
+			action := command.Action
 			if action == keybind.Quit {
 				return true
 			}
 			if action == keybind.ToggleStatus {
 				a.UI.ToggleStatusline()
+			} else if action == keybind.Bottom && command.Count > 0 {
+				view.top = text.LineRow(command.Count)
+				view.follow, view.bottom = false, false
 			} else {
 				view.apply(action, text.RowCount(), layout.Body.Height)
 			}
