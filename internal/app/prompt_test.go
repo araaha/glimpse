@@ -62,3 +62,28 @@ func TestPromptInsertionAndHistoryDraft(t *testing.T) {
 		t.Fatalf("unsafe insert = %q", string(p.text))
 	}
 }
+
+func TestPromptMovesAndDeletesWholeGraphemes(t *testing.T) {
+	p := newPrompt(false, nil)
+	p.edit(keybind.Command{Action: keybind.Insert, Text: "a👩🏽‍💻é🇺🇳z"})
+	for _, want := range []string{"a👩🏽‍💻é🇺🇳", "a👩🏽‍💻é", "a👩🏽‍💻", "a", ""} {
+		p.edit(keybind.Command{Action: keybind.Backspace})
+		if string(p.text) != want {
+			t.Fatalf("grapheme backspace = %q, want %q", string(p.text), want)
+		}
+	}
+	p.edit(keybind.Command{Action: keybind.Insert, Text: "é x"})
+	p.edit(keybind.Command{Action: keybind.Start})
+	p.edit(keybind.Command{Action: keybind.WordRight})
+	if p.cursor != 2 {
+		t.Fatalf("word motion split combining cluster at %d", p.cursor)
+	}
+	p.edit(keybind.Command{Action: keybind.Left})
+	if p.cursor != 0 {
+		t.Fatalf("left split combining cluster at %d", p.cursor)
+	}
+	p.edit(keybind.Command{Action: keybind.Delete})
+	if string(p.text) != " x" {
+		t.Fatalf("delete split combining cluster: %q", string(p.text))
+	}
+}

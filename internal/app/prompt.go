@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/clipperhouse/uax29/v2/graphemes"
+	"sort"
 	"unicode"
 	"unicode/utf8"
 
@@ -8,7 +10,7 @@ import (
 	"glimpse/internal/search"
 )
 
-// prompt uses rune indices, never byte indices, for editing and word movement.
+// prompt stores rune indices but only moves/deletes at grapheme boundaries.
 type prompt struct {
 	text         []rune
 	cursor       int
@@ -24,7 +26,41 @@ func newPrompt(backward bool, entries []string) *prompt {
 	return &prompt{backward: backward, history: append([]string(nil), entries...), historyIndex: len(entries)}
 }
 
-func wordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+func wordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_'
+}
+
+func (p *prompt) boundaries() []int {
+	result := []int{0}
+	count := 0
+	iterator := graphemes.FromString(string(p.text))
+	for iterator.Next() {
+		count += utf8.RuneCountInString(iterator.Value())
+		result = append(result, count)
+	}
+	return result
+}
+
+func (p *prompt) previous() int {
+	points := p.boundaries()
+	index := sort.SearchInts(points, p.cursor)
+	return points[max(0, index-1)]
+}
+
+func (p *prompt) next() int {
+	points := p.boundaries()
+	index := sort.Search(len(points), func(i int) bool { return points[i] > p.cursor })
+	return points[min(index, len(points)-1)]
+}
+
+func (p *prompt) align(position int, forward bool) int {
+	points := p.boundaries()
+	index := sort.SearchInts(points, position)
+	if !forward && (index == len(points) || points[index] > position) {
+		index--
+	}
+	return points[min(max(0, index), len(points)-1)]
+}
 
 func (p *prompt) wordLeft() int {
 	i := p.cursor
@@ -34,7 +70,7 @@ func (p *prompt) wordLeft() int {
 	for i > 0 && wordRune(p.text[i-1]) {
 		i--
 	}
-	return i
+	return p.align(i, false)
 }
 
 func (p *prompt) wordRight() int {
@@ -45,10 +81,11 @@ func (p *prompt) wordRight() int {
 	for i < len(p.text) && wordRune(p.text[i]) {
 		i++
 	}
-	return i
+	return p.align(i, true)
 }
 
 func (p *prompt) edit(command keybind.Command) {
+	defer func() { p.cursor = p.align(p.cursor, true) }()
 	switch command.Action {
 	case keybind.Insert:
 		if utf8.ValidString(command.Text) && len(string(p.text))+len(command.Text) <= search.MaxQueryBytes {
@@ -63,9 +100,9 @@ func (p *prompt) edit(command keybind.Command) {
 			}
 		}
 	case keybind.Left:
-		p.cursor = max(0, p.cursor-1)
+		p.cursor = p.previous()
 	case keybind.Right:
-		p.cursor = min(len(p.text), p.cursor+1)
+		p.cursor = p.next()
 	case keybind.Start:
 		p.cursor = 0
 	case keybind.End:
@@ -76,12 +113,13 @@ func (p *prompt) edit(command keybind.Command) {
 		p.cursor = p.wordRight()
 	case keybind.Backspace:
 		if p.cursor > 0 {
-			p.text = append(p.text[:p.cursor-1], p.text[p.cursor:]...)
-			p.cursor--
+			start := p.previous()
+			p.text = append(p.text[:start], p.text[p.cursor:]...)
+			p.cursor = start
 		}
 	case keybind.Delete:
 		if p.cursor < len(p.text) {
-			p.text = append(p.text[:p.cursor], p.text[p.cursor+1:]...)
+			p.text = append(p.text[:p.cursor], p.text[p.next():]...)
 		}
 	case keybind.DeleteWordBackward:
 		start := p.wordLeft()
