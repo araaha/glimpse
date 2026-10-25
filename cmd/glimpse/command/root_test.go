@@ -65,7 +65,7 @@ func TestCmdHeightConfiguration(t *testing.T) {
 			root := newRoot(func(_ context.Context, _ *app.App, input io.ReadCloser, _ string) error {
 				input.Close()
 				return errors.New(noTerminal)
-			})
+			}, nil)
 			root.SetIn(strings.NewReader(""))
 			root.SetOut(io.Discard)
 			root.SetErr(io.Discard)
@@ -107,7 +107,7 @@ func TestRootLoadsFileAndKeySequence(t *testing.T) {
 			t.Fatalf("configured sequence = %v", got)
 		}
 		return nil
-	})
+	}, nil)
 	root.SetArgs([]string{"--config", configPath, inputPath})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)

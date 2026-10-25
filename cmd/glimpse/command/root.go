@@ -23,12 +23,12 @@ import (
 func NewRoot() *cobra.Command {
 	return newRoot(func(ctx context.Context, application *app.App, input io.ReadCloser, name string) error {
 		return application.Run(ctx, input, name)
-	})
+	}, requireInteractiveTerminal)
 }
 
 type runner func(context.Context, *app.App, io.ReadCloser, string) error
 
-func newRoot(run runner) *cobra.Command {
+func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	config := viper.New()
 	var configFile string
 
@@ -39,6 +39,11 @@ func newRoot(run runner) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if checkTerminal != nil {
+				if err := checkTerminal(cmd.OutOrStdout()); err != nil {
+					return err
+				}
+			}
 			options, err := readOptions(config)
 			if err != nil {
 				return err
