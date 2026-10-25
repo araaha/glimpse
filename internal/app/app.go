@@ -24,6 +24,7 @@ type Options struct {
 	Storage           pager.StorageOptions
 	MetadataBudget    int64
 	MetadataQuota     int64
+	AmbiguousWidth    int
 }
 
 // App coordinates asynchronous ingestion with viewport-sized rendering.
@@ -38,6 +39,7 @@ type App struct {
 	IncrementalSearch             bool
 	HighlightSearch               bool
 	metadataBudget, metadataQuota int64
+	wideAmbiguous                 bool
 	follow                        bool
 }
 
@@ -77,6 +79,12 @@ func New(options Options) (*App, error) {
 	if options.MetadataBudget < 16<<10 || options.MetadataQuota < 40 {
 		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least 40 bytes")
 	}
+	if options.AmbiguousWidth == 0 {
+		options.AmbiguousWidth = 1
+	}
+	if options.AmbiguousWidth != 1 && options.AmbiguousWidth != 2 {
+		return nil, fmt.Errorf("ambiguous-width must be 1 or 2")
+	}
 	document, err := pager.NewDocumentWithOptions(options.ChunkSize, options.Storage)
 	if err != nil {
 		return nil, err
@@ -92,6 +100,7 @@ func New(options Options) (*App, error) {
 		HighlightSearch:   !options.NoSearchHighlight,
 		metadataBudget:    options.MetadataBudget,
 		metadataQuota:     options.MetadataQuota,
+		wideAmbiguous:     options.AmbiguousWidth == 2,
 		follow:            options.Follow,
 	}, nil
 }

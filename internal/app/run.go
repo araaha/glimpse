@@ -59,6 +59,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		return err
 	}
 	defer func() { runErr = errors.Join(runErr, text.Close()) }()
+	text.SetWideAmbiguous(a.wideAmbiguous)
 	search := searchState{results: make(chan searchResponse, 1)}
 	defer search.close()
 	view := viewState{follow: a.follow}
@@ -94,7 +95,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			state += "  FOLLOW"
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
-		frame := ui.Frame{Layout: layout, Lines: lines, Styled: text.Styled(), Status: status, Search: search.message}
+		frame := ui.Frame{Layout: layout, Lines: lines, Styled: text.Styled(), Status: status, Search: search.message, WideAmbiguous: a.wideAmbiguous}
 		if paused && search.prompt == nil {
 			frame.Search = "Storage paused: spool quota reached; :set spool-quota=BYTES to resume"
 		}
@@ -390,19 +391,20 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 					}
 					continue
 				}
-				key, ok := ui.KeyFromEvent(ev)
-				if !ok {
+				keys := ui.KeysFromEvent(ev)
+				if len(keys) == 0 {
 					continue
 				}
-				if search.prompt != nil {
-					if quit, err := applyPrompt(a.SearchKeys.Feed(key)); quit || err != nil {
-						return err
+				for _, key := range keys {
+					if search.prompt != nil {
+						if quit, err := applyPrompt(a.SearchKeys.Feed(key)); quit || err != nil {
+							return err
+						}
+					} else {
+						if quit, err := apply(a.Keys.Feed(key)); quit || err != nil {
+							return err
+						}
 					}
-					deadline = time.Now().Add(sequenceTimeout)
-					continue
-				}
-				if quit, err := apply(a.Keys.Feed(key)); quit || err != nil {
-					return err
 				}
 				deadline = time.Now().Add(sequenceTimeout)
 			}

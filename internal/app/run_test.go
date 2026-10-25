@@ -421,6 +421,17 @@ func TestRunRollingNoticeSurvivesSearchMessages(t *testing.T) {
 	viewer.expectExit(t)
 }
 
+func TestRunSearchAcceptsComposedTerminalEvents(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{}, "start\n👩🏽‍💻\nend", 10, 2)
+	viewer.press("/", "👩🏽‍💻")
+	waitFrame(t, viewer.frames, searchFrame("/👩🏽‍💻", true))
+	viewer.press("<Backspace>")
+	waitFrame(t, viewer.frames, searchFrame("/", true))
+	viewer.press("<Esc>", "q")
+	viewer.expectExit(t)
+}
+
 func TestRunSearchHistoryFailureIsNonfatal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

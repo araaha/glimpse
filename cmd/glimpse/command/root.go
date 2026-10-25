@@ -81,6 +81,9 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 					return err
 				}
 			}
+			if err := config.BindPFlag("display.ambiguous-width", cmd.Flags().Lookup("ambiguous-width")); err != nil {
+				return err
+			}
 
 			if configFile != "" {
 				config.SetConfigFile(configFile)
@@ -117,6 +120,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Int64("metadata-quota", 256<<20, "maximum row/line index bytes")
 	root.Flags().String("retention", "lossless", "stream retention: lossless or rolling (explicit history loss)")
 	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
+	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 statusline initially visible, 0 initially hidden, 1 statusline above search row")
 	return root
 }
@@ -135,6 +139,10 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse follow: %w", err)
 	}
 	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow}
+	options.AmbiguousWidth, err = strconv.Atoi(config.GetString("display.ambiguous-width"))
+	if err != nil || options.AmbiguousWidth != 1 && options.AmbiguousWidth != 2 {
+		return app.Options{}, fmt.Errorf("ambiguous-width must be 1 or 2")
+	}
 	for name, destination := range map[string]*int64{
 		"memory-budget": &options.Storage.MemoryBudget, "spool-quota": &options.Storage.SpoolQuota,
 		"metadata-budget": &options.MetadataBudget, "metadata-quota": &options.MetadataQuota,
