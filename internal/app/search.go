@@ -15,6 +15,10 @@ type searchResponse struct {
 	err        error
 }
 
+func (r searchResponse) available(start, end int64) bool {
+	return r.result.Offset >= start && r.result.Offset < end
+}
+
 // searchState is owned by the UI loop; workers only send immutable results.
 type searchState struct {
 	prompt         *prompt

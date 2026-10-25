@@ -13,6 +13,7 @@ import (
 
 	"glimpse/internal/keybind"
 	"glimpse/internal/pager"
+	"glimpse/internal/search"
 	"glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3"
@@ -342,6 +343,80 @@ func TestRunQuitUnblocksStorageQuota(t *testing.T) {
 	}()
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool { return strings.HasPrefix(frame.Search, "Storage paused:") })
 	viewer := testViewer{screen: screen, frames: recorder.frames, result: result}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunQuotaCommandResumesIngestion(t *testing.T) {
+	application, _ := New(Options{ChunkSize: 32, Storage: pager.StorageOptions{MemoryBudget: 128, SpoolQuota: 256, SpoolDir: t.TempDir()}})
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 4}), tcell.OptNegotiation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 32)}
+	application.Renderer = recorder
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- application.run(ctx, io.NopCloser(strings.NewReader(strings.Repeat("x", 300))), "test", screen)
+	}()
+	waitFrame(t, recorder.frames, func(frame ui.Frame) bool { return strings.HasPrefix(frame.Search, "Storage paused:") })
+	viewer := testViewer{screen: screen, frames: recorder.frames, result: result}
+	viewer.press(":")
+	viewer.typeText("set spool-quota=512")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return frame.Search == "spool-quota=512" && !strings.Contains(frame.Status, "reading")
+	})
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunReportsSpoolCleanupFailure(t *testing.T) {
+	dir := t.TempDir()
+	viewer := startTestViewer(t, Options{ChunkSize: 32, Storage: pager.StorageOptions{MemoryBudget: 128, SpoolQuota: 1024, SpoolDir: dir}}, strings.Repeat("x", 300), 20, 3)
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("spool files = %v", entries)
+	}
+	path := filepath.Join(dir, entries[0].Name())
+	if err := os.Rename(path, path+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "child"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	viewer.press("q")
+	select {
+	case err := <-viewer.result:
+		if err == nil {
+			t.Fatal("cleanup failure silently ignored")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cleanup did not finish")
+	}
+}
+
+func TestSearchResponseRejectsEvictedOffset(t *testing.T) {
+	response := searchResponse{result: search.Result{Offset: 10, Found: true}}
+	if response.available(20, 100) || response.available(0, 10) || !response.available(10, 100) {
+		t.Fatal("retained match range check failed")
+	}
+}
+
+func TestRunRollingNoticeSurvivesSearchMessages(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{Storage: pager.StorageOptions{MemoryBudget: 64, SpoolQuota: 128, Retention: "rolling"}}, strings.Repeat("hit\n", 32), 80, 3)
+	viewer.press("/")
+	viewer.typeText("hit")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return strings.HasPrefix(frame.Search, "/hit") && strings.Contains(frame.Search, "64 bytes discarded")
+	})
 	viewer.press("q")
 	viewer.expectExit(t)
 }

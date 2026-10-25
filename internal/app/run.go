@@ -30,7 +30,7 @@ func (a *App) Run(ctx context.Context, input io.ReadCloser, name string) error {
 	return a.run(ctx, input, name, screen)
 }
 
-func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen tcell.Screen) error {
+func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen tcell.Screen) (runErr error) {
 	if err := screen.Init(); err != nil {
 		input.Close()
 		a.Document.Close()
@@ -48,8 +48,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		result <- a.Ingest(input)
 	}()
 	defer func() {
-		input.Close()      // Unblock a reader waiting on a pipe when the user quits.
-		a.Document.Close() // Wake a writer paused at the lossless spool quota.
+		runErr = errors.Join(runErr, input.Close(), a.Document.Close())
 		<-finished
 	}()
 
@@ -59,7 +58,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	if err != nil {
 		return err
 	}
-	defer text.Close()
+	defer func() { runErr = errors.Join(runErr, text.Close()) }()
 	search := searchState{results: make(chan searchResponse, 1)}
 	defer search.close()
 	view := viewState{follow: a.follow}
@@ -99,8 +98,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if paused && search.prompt == nil {
 			frame.Search = "Storage paused: spool quota reached; :set spool-quota=BYTES to resume"
 		}
-		if discarded > 0 && search.prompt == nil && frame.Search == "" {
-			frame.Search = fmt.Sprintf("Rolling history: %d bytes discarded", discarded)
+		if discarded > 0 && search.prompt == nil {
+			frame.Search += fmt.Sprintf(" [rolling history: %d bytes discarded]", discarded)
 		}
 		if a.HighlightSearch {
 			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
@@ -326,6 +325,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				continue
 			}
 			search.busy = false
+			if response.result.Found && !response.available(a.Document.Start(), a.Document.Len()) {
+				response.result.Found = false
+				response.err = fmt.Errorf("match was discarded by rolling retention; repeat to search available history")
+				search.matched = false
+			}
 			if response.err != nil {
 				search.message = fmt.Sprintf("Search: %v", response.err)
 			} else if !response.result.Found {
