@@ -47,6 +47,7 @@ func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, er
 		extent = max(extent, cursor)
 	}
 	for {
+		reader.SetRenderState(t.width, cursor, extent, t.wideAmbiguous)
 		token, err := reader.Next()
 		if errors.Is(err, io.EOF) {
 			break

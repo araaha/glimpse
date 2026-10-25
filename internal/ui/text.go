@@ -263,6 +263,9 @@ func (t *Text) addCluster(cluster content.Cluster) error {
 		return nil
 	}
 	w := t.clusterWidth(cluster.Text)
+	if r == '\t' {
+		w = 1
+	} // A tab at the right edge must first create a new row.
 	if cluster.Text == "_" {
 		w = max(w, t.struckWidth)
 	}
@@ -281,7 +284,11 @@ func (t *Text) addCluster(cluster content.Cluster) error {
 	}
 	w = min(w, t.width)
 	for i := t.column; i < min(t.width, t.column+w); i++ {
-		t.cellStarts[i] = t.column
+		if r == '\t' {
+			t.cellStarts[i] = i
+		} else {
+			t.cellStarts[i] = t.column
+		}
 	}
 	t.column += w
 	return nil
