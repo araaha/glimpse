@@ -1,6 +1,9 @@
 package pager
 
-import "io"
+import (
+	"io"
+	"os"
+)
 
 // DefaultChunkSize is the allocation unit for incoming bytes.
 const DefaultChunkSize = 64 * 1024
@@ -29,10 +32,36 @@ func (d *Document) Write(p []byte) (int, error) {
 
 // ReadFrom streams all bytes from r into the document.
 func (d *Document) ReadFrom(r io.Reader) (int64, error) {
+	if file, ok := r.(*os.File); ok && d.data.options.Retention != "rolling" {
+		if info, err := file.Stat(); err == nil && info.Mode().IsRegular() {
+			if offset, err := file.Seek(0, io.SeekCurrent); err == nil {
+				length := max(0, info.Size()-offset)
+				if err := d.data.useFile(file, offset, length); err != nil {
+					return 0, err
+				}
+				_, err := file.Seek(length, io.SeekCurrent)
+				return length, err
+			}
+		}
+	}
 	// Copy to the underlying writer: copying to d would invoke ReadFrom again
 	// for readers without a WriterTo method, recursing instead of reading.
 	return io.Copy(d.data, r)
 }
+
+func NewDocumentWithOptions(chunkSize int, options StorageOptions) (*Document, error) {
+	store, err := NewStoreWithOptions(chunkSize, options)
+	if err != nil {
+		return nil, err
+	}
+	return &Document{data: store}, nil
+}
+
+func (d *Document) Start() int64               { return d.data.Start() }
+func (d *Document) MemoryBytes() int64         { return d.data.MemoryBytes() }
+func (d *Document) Paused() bool               { return d.data.Paused() }
+func (d *Document) SetQuota(quota int64) error { return d.data.SetQuota(quota) }
+func (d *Document) Close() error               { return d.data.Close() }
 
 // Len reports the total number of bytes ingested so far.
 func (d *Document) Len() int64 {
