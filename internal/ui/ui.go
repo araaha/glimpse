@@ -1,5 +1,7 @@
 package ui
 
+import "glimpse/internal/content"
+
 // Viewport describes the portion of the input needed for one screen frame.
 // Storage and stream ingestion must not depend on the size of a logical line.
 type Viewport struct {
@@ -17,6 +19,15 @@ type Frame struct {
 	SearchActive bool
 	SearchCursor int // Rune index in Search, including the direction prefix.
 	Highlights   []Highlight
+	Styled       [][]Glyph
+}
+
+// Glyphs are safe text plus explicit attributes, never terminal escape strings.
+type Glyph struct {
+	Text          string
+	Column, Width int
+	Style         content.Style
+	Start, End    int64
 }
 
 type Highlight struct{ Row, Column, Width int }

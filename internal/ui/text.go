@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"bufio"
 	"errors"
+	"glimpse/internal/content"
 	"glimpse/internal/pager"
 	"io"
 	"sort"
@@ -25,12 +25,16 @@ type Text struct {
 	source                  TextSource
 	starts                  *offsetIndex
 	lineStarts              *offsetIndex
+	rowStyles               *offsetIndex
+	style                   content.Style
+	cellStarts              []int
+	rendered                [][]Glyph
 	indexMemory, indexQuota int64
 	base                    int64
 	scanned                 int64
 	width                   int
 	column                  int
-	buffer                  [64 * 1024]byte
+	struckWidth             int
 }
 
 func NewText(source TextSource) *Text {
@@ -39,21 +43,24 @@ func NewText(source TextSource) *Text {
 }
 
 func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
-	if memory < 16<<10 || quota < 16 {
-		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 16 bytes")
+	if memory < 16<<10 || quota < 24 {
+		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 24 bytes")
 	}
 	return &Text{source: source, indexMemory: memory, indexQuota: quota}, nil
 }
 
 func (t *Text) Close() error {
-	var first, second error
+	var first, second, third error
 	if t.starts != nil {
 		first = t.starts.close()
 	}
 	if t.lineStarts != nil {
 		second = t.lineStarts.close()
 	}
-	return errors.Join(first, second)
+	if t.rowStyles != nil {
+		third = t.rowStyles.close()
+	}
+	return errors.Join(first, second, third)
 }
 
 func (t *Text) reset(width int, base int64) error {
@@ -61,9 +68,16 @@ func (t *Text) reset(width int, base int64) error {
 		return err
 	}
 	t.width, t.column, t.scanned, t.base = width, 0, base, base
-	t.starts = newOffsetIndex(t.indexMemory/2, t.indexQuota/2)
-	t.lineStarts = newOffsetIndex(t.indexMemory/2, t.indexQuota/2)
+	t.style = 0
+	t.struckWidth = 0
+	t.cellStarts = make([]int, width)
+	t.starts = newOffsetIndex(t.indexMemory/3, t.indexQuota/3)
+	t.lineStarts = newOffsetIndex(t.indexMemory/3, t.indexQuota/3)
+	t.rowStyles = newOffsetIndex(t.indexMemory/3, t.indexQuota/3)
 	if err := t.starts.append(base); err != nil {
+		return err
+	}
+	if err := t.rowStyles.append(0); err != nil {
 		return err
 	}
 	return t.lineStarts.append(base)
@@ -89,34 +103,25 @@ func (t *Text) Update(width int, complete bool) error {
 	if t.lineStarts.err != nil {
 		return t.lineStarts.err
 	}
-	end := t.source.Len()
-	for t.scanned < end {
-		want := int(min(int64(len(t.buffer)), end-t.scanned))
-		n, err := t.source.ReadAt(t.buffer[:want], t.scanned)
-		if err != nil && !errors.Is(err, io.EOF) {
-			if errors.Is(err, pager.ErrEvicted) {
-				return nil
-			}
-			return err
-		}
-		used := 0
-		for used < n {
-			r, size := rune(t.buffer[used]), 1
-			if r >= utf8.RuneSelf {
-				if !utf8.FullRune(t.buffer[used:n]) && (!complete || t.scanned+int64(n) < end) {
-					break
-				}
-				r, size = utf8.DecodeRune(t.buffer[used:n])
-			}
-			if err := t.addRune(r, t.scanned+int64(used), size); err != nil {
-				return err
-			}
-			used += size
-		}
-		t.scanned += int64(used)
-		if used == 0 {
+	if t.rowStyles.err != nil {
+		return t.rowStyles.err
+	}
+	reader := content.NewReader(t.source, t.scanned, t.source.Len(), t.style, complete)
+	for {
+		token, err := reader.Next()
+		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) {
 			break
 		}
+		if err != nil {
+			return err
+		}
+		t.style = token.Style
+		if !token.Hidden {
+			if err := t.addRune(token.Rune, token.Start, int(token.End-token.Start)); err != nil {
+				return err
+			}
+		}
+		t.scanned = token.End
 	}
 	return nil
 }
@@ -129,15 +134,36 @@ func (t *Text) addRune(r rune, offset int64, size int) error {
 		if err := t.lineStarts.append(offset + int64(size)); err != nil {
 			return err
 		}
+		if err := t.rowStyles.append(int64(t.style)); err != nil {
+			return err
+		}
 		t.column = 0
+		t.struckWidth = 0
 		return nil
 	}
 	if r == '\r' {
-		return nil // Treat CRLF as one line ending.
+		t.column = 0
+		t.struckWidth = 0
+		return nil // CR rewinds the current display row; it cannot cross a wrap.
+	}
+	if r == '\b' {
+		if t.column > 0 {
+			previous := t.column
+			t.column = t.cellStarts[t.column-1]
+			t.struckWidth = previous - t.column
+		}
+		return nil
 	}
 	w := runeWidth(r)
+	if r == '_' {
+		w = max(w, t.struckWidth)
+	}
+	t.struckWidth = 0
 	if w > 0 && t.column > 0 && t.column+w > t.width {
 		if err := t.starts.append(offset); err != nil {
+			return err
+		}
+		if err := t.rowStyles.append(int64(t.style)); err != nil {
 			return err
 		}
 		t.column = 0
@@ -145,7 +171,11 @@ func (t *Text) addRune(r rune, offset int64, size int) error {
 	if r == '\t' {
 		w = min(8-t.column%8, t.width-t.column)
 	}
-	t.column += min(w, t.width)
+	w = min(w, t.width)
+	for i := t.column; i < min(t.width, t.column+w); i++ {
+		t.cellStarts[i] = t.column
+	}
+	t.column += w
 	return nil
 }
 
@@ -203,7 +233,7 @@ func (t *Text) LineRow(line int) int {
 
 func (t *Text) Lines(top, height int) ([]string, error) {
 	var lines []string
-	var reader *bufio.Reader
+	t.rendered = nil
 	for row := max(0, top); row < t.RowCount() && len(lines) < height; row++ {
 		end := t.scanned
 		if row+1 < t.starts.count {
@@ -213,80 +243,22 @@ func (t *Text) Lines(top, height int) ([]string, error) {
 		if t.starts.err != nil {
 			return nil, t.starts.err
 		}
-		section := io.NewSectionReader(t.source, start, end-start)
-		if reader == nil {
-			reader = bufio.NewReaderSize(section, 4096)
-		} else {
-			reader.Reset(section)
+		style := content.Style(t.rowStyles.at(row))
+		if t.rowStyles.err != nil {
+			return nil, t.rowStyles.err
 		}
-		line, err := t.readLine(reader)
+		glyphs, err := t.readStyledRow(start, end, style)
 		if err != nil {
 			return nil, err
 		}
-		lines = append(lines, line)
+		var line strings.Builder
+		for _, glyph := range glyphs {
+			line.WriteString(glyph.Text)
+		}
+		lines = append(lines, line.String())
+		t.rendered = append(t.rendered, glyphs)
 	}
 	return lines, nil
 }
 
-func (t *Text) readLine(reader *bufio.Reader) (string, error) {
-	var line strings.Builder
-	column := 0
-	maxBytes := max(256, t.width*16)
-	// Limit retained zero-width text, not bytes scanned before visible cells.
-	// Reserve enough space for every remaining cell even after a long span of
-	// combining marks. Ignored carriage returns consume no output budget.
-	zeroWidthBudget := maxBytes - t.width*utf8.UTFMax
-	suffixBudget := maxBytes
-	for {
-		r, size, err := reader.ReadRune()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		if r == '\n' {
-			break
-		}
-		if column >= t.width {
-			// The visible cells are full; retain only a bounded combining
-			// suffix rather than scanning an arbitrarily long invisible tail.
-			suffixBudget -= size
-			if suffixBudget < 0 {
-				break
-			}
-		}
-		if r == '\r' {
-			continue
-		}
-		if r == '\t' {
-			spaces := min(8-column%8, t.width-column)
-			line.WriteString(strings.Repeat(" ", spaces))
-			column += spaces
-			continue
-		}
-		if unicode.IsControl(r) {
-			r = utf8.RuneError // Show controls instead of executing escapes.
-		}
-		w := runeWidth(r)
-		if w > 0 && column+w > t.width {
-			if column == 0 { // A wide character in a one-column terminal.
-				line.WriteRune(utf8.RuneError)
-			}
-			break
-		}
-		if w == 0 {
-			bytes := utf8.RuneLen(r)
-			if bytes > zeroWidthBudget {
-				if column >= t.width {
-					break
-				}
-				continue
-			}
-			zeroWidthBudget -= bytes
-		}
-		line.WriteRune(r)
-		column += w
-	}
-	return line.String(), nil
-}
+func (t *Text) Styled() [][]Glyph { return t.rendered }

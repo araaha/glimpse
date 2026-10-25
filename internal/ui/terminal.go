@@ -5,10 +5,12 @@ import (
 	"strings"
 	"unicode"
 
+	"glimpse/internal/content"
 	"glimpse/internal/keybind"
 
 	"github.com/clipperhouse/displaywidth"
 	"github.com/gdamore/tcell/v3"
+	"github.com/gdamore/tcell/v3/color"
 )
 
 type Terminal struct{ screen tcell.Screen }
@@ -22,6 +24,16 @@ func (t *Terminal) Render(frame Frame) error {
 			break
 		}
 		t.screen.PutStr(0, y, line)
+	}
+	for row, glyphs := range frame.Styled {
+		if row >= frame.Layout.Body.Height {
+			break
+		}
+		for _, glyph := range glyphs {
+			if glyph.Column < frame.Layout.Body.Width {
+				t.screen.Put(glyph.Column, row, glyph.Text, terminalStyle(glyph.Style))
+			}
+		}
 	}
 	for _, mark := range frame.Highlights {
 		if mark.Row < 0 || mark.Row >= frame.Layout.Body.Height {
@@ -56,6 +68,17 @@ func (t *Terminal) Render(frame Frame) error {
 	}
 	t.screen.Show()
 	return nil
+}
+
+func terminalStyle(style content.Style) tcell.Style {
+	result := tcell.StyleDefault.Bold(style&content.Bold != 0).Dim(style&content.Dim != 0).Italic(style&content.Italic != 0).Underline(style&content.Underline != 0).Reverse(style&content.Reverse != 0).StrikeThrough(style&content.Strike != 0)
+	if rgb, ok := style.Foreground(); ok {
+		result = result.Foreground(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
+	}
+	if rgb, ok := style.Background(); ok {
+		result = result.Background(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
+	}
+	return result
 }
 
 // searchLine keeps the editing cursor visible without splitting UTF-8. Controls

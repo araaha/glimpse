@@ -28,7 +28,7 @@ func TestHighlightUsesRawMatchesAndIncludesOverlaps(t *testing.T) {
 		cells        int
 	}{
 		{"a\tb", "a       b", 0}, {"a\rb", "ab", 0}, {"a\x01b", "a�b", 0},
-		{"banana", "ana", 5}, {"aaaa", "aaa", 4}, {"a\tb", "\t", 1},
+		{"banana", "ana", 5}, {"aaaa", "aaa", 4}, {"a\tb", "\t", 7},
 	} {
 		doc := pager.NewDocument()
 		doc.Write([]byte(tt.input))

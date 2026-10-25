@@ -1,90 +1,59 @@
 package ui
 
 import (
-	"bufio"
 	"context"
-	"io"
+	"glimpse/internal/search"
 	"sort"
 	"unicode/utf8"
-
-	"glimpse/internal/search"
 )
 
-type sourceCell struct {
-	start, end         int64
-	row, column, width int
-}
-
-// Highlights maps actual source matches to the visible cells. It never searches
-// transformed text (expanded tabs, ignored CR, replacement controls), and retains
-// only viewport-sized metadata even when raw rows contain long invisible spans.
+// Highlights maps overlapping source matches to rendered glyphs, never to
+// expanded tabs or other transformed display text. Glyph memory is viewport-bound.
 func (t *Text) Highlights(lines []string, top int, query string, smart, ignore bool) []Highlight {
 	if query == "" || len(lines) == 0 {
 		return nil
 	}
-	var cells []sourceCell
-	for row := range lines {
-		start := t.Offset(top + row)
-		end := t.scanned
-		if top+row+1 < t.starts.count {
-			end = t.starts.at(top + row + 1)
-		}
-		reader := bufio.NewReaderSize(io.NewSectionReader(t.source, start, end-start), 4096)
-		column, budget := 0, max(256, t.width*16)-t.width*utf8.UTFMax
-		suffix := max(256, t.width*16)
-		for {
-			r, size, err := reader.ReadRune()
-			if err != nil || r == '\n' {
-				break
+	type markedGlyph struct {
+		glyph  Glyph
+		row    int
+		marked bool
+		maxEnd int64
+	}
+	var cells []markedGlyph
+	for row, glyphs := range t.rendered {
+		for _, glyph := range glyphs {
+			if glyph.Start >= 0 {
+				cells = append(cells, markedGlyph{glyph: glyph, row: row})
 			}
-			offset := start
-			start += int64(size)
-			if column >= t.width {
-				suffix -= size
-				if suffix < 0 {
-					break
-				}
-			}
-			if r == '\r' {
-				continue
-			}
-			width := runeWidth(r)
-			if r == '\t' {
-				width = min(8-column%8, t.width-column)
-			}
-			if width > 0 && column+width > t.width {
-				if column == 0 {
-					width = 1
-				} else {
-					break
-				}
-			}
-			if width == 0 {
-				if size > budget {
-					continue
-				}
-				budget -= size
-			}
-			cells = append(cells, sourceCell{offset, start, row, column, width})
-			column += width
 		}
 	}
 	if len(cells) == 0 {
 		return nil
 	}
-	marked := make([]bool, len(cells))
-	padding := int64(utf8.RuneCountInString(query) * utf8.UTFMax)
-	_ = search.Walk(context.Background(), t.source, query, max(0, cells[0].start-padding), min(t.scanned, cells[len(cells)-1].end+padding), smart, ignore, func(start, end int64) bool {
-		index := sort.Search(len(cells), func(i int) bool { return cells[i].end > start })
-		for i := index; i < len(cells) && cells[i].start < end; i++ {
-			marked[i] = true
+	sort.Slice(cells, func(i, j int) bool { return cells[i].glyph.Start < cells[j].glyph.Start })
+	maximum := int64(0)
+	for i := range cells {
+		maximum = max(maximum, cells[i].glyph.End)
+		cells[i].maxEnd = maximum
+	}
+	lookaround := utf8.RuneCountInString(query)
+	start, end := t.Offset(max(0, top-lookaround)), t.scanned
+	if row := top + len(lines) + lookaround; row < t.RowCount() {
+		end = t.Offset(row)
+	}
+	_ = search.Walk(context.Background(), t.source, query, start, end, smart, ignore, func(start, end int64) bool {
+		index := sort.Search(len(cells), func(i int) bool { return cells[i].maxEnd > start })
+		for i := index; i < len(cells) && cells[i].glyph.Start < end; i++ {
+			if cells[i].glyph.End > start {
+				cells[i].marked = true
+			}
 		}
 		return true
 	})
 	var result []Highlight
-	for i, c := range cells {
-		if marked[i] && c.width > 0 {
-			result = append(result, Highlight{c.row, c.column, c.width})
+	for _, cell := range cells {
+		if cell.marked && cell.glyph.Width > 0 {
+			result = append(result, Highlight{cell.row, cell.glyph.Column, cell.glyph.Width})
 		}
 	}
 	return result

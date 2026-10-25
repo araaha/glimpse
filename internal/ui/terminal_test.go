@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"glimpse/internal/content"
 	"glimpse/internal/keybind"
 
 	"github.com/gdamore/tcell/v3"
@@ -60,6 +61,16 @@ func TestSearchLineScrollingAndSafety(t *testing.T) {
 		if got != tt.want || column != tt.column {
 			t.Fatalf("searchLine(%q, %d, %d) = (%q, %d), want (%q, %d)", tt.text, tt.cursor, tt.width, got, column, tt.want, tt.column)
 		}
+	}
+}
+
+func TestTerminalStyleHasOnlyExplicitSafeAttributes(t *testing.T) {
+	style := terminalStyle(content.Bold | content.Dim | content.Italic | content.Underline | content.Reverse | content.Strike)
+	if !style.HasBold() || !style.HasDim() || !style.HasItalic() || !style.HasUnderline() || !style.HasReverse() || !style.HasStrikeThrough() {
+		t.Fatal("style attributes lost")
+	}
+	if id, url := style.GetUrl(); id != "" || url != "" {
+		t.Fatal("input styling activated a hyperlink")
 	}
 }
 

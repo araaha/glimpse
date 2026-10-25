@@ -94,7 +94,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			state += "  FOLLOW"
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
-		frame := ui.Frame{Layout: layout, Lines: lines, Status: status, Search: search.message}
+		frame := ui.Frame{Layout: layout, Lines: lines, Styled: text.Styled(), Status: status, Search: search.message}
 		if paused && search.prompt == nil {
 			frame.Search = "Storage paused: spool quota reached; :set spool-quota=BYTES to resume"
 		}

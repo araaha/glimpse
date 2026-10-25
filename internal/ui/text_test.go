@@ -132,7 +132,7 @@ func TestTextRows(t *testing.T) {
 		{"wide character wraps", "abc界", 4, []string{"abc", "界"}},
 		{"one column wide text", "界x", 1, []string{"�", "x"}},
 		{"combining text", "e\u0301x", 1, []string{"e\u0301", "x"}},
-		{"escape is not executed", "\x1b[31m", 10, []string{"�[31m"}},
+		{"escape is not executed", "\x1b[31m", 10, []string{""}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
