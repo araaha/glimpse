@@ -70,6 +70,11 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 					return err
 				}
 			}
+			for flag, key := range map[string]string{"incremental-search": "search.incremental", "highlight-search": "search.highlight"} {
+				if err := config.BindPFlag(key, cmd.Flags().Lookup(flag)); err != nil {
+					return err
+				}
+			}
 
 			if configFile != "" {
 				config.SetConfigFile(configFile)
@@ -97,6 +102,8 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Bool("smart-case", false, "ignore search case unless the query contains an uppercase letter")
 	root.Flags().Bool("ignore-case", false, "ignore search case, including uppercase queries")
 	root.Flags().Bool("case-sensitive", false, "match search case exactly")
+	root.Flags().Bool("incremental-search", false, "preview matches while editing a search")
+	root.Flags().Bool("highlight-search", true, "highlight visible search matches")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 statusline initially visible, 0 initially hidden, 1 statusline above search row")
 	return root
 }
@@ -115,6 +122,15 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse follow: %w", err)
 	}
 	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow}
+	options.IncrementalSearch, err = strconv.ParseBool(config.GetString("search.incremental"))
+	if err != nil {
+		return app.Options{}, fmt.Errorf("parse search.incremental: %w", err)
+	}
+	highlight, err := strconv.ParseBool(config.GetString("search.highlight"))
+	if err != nil {
+		return app.Options{}, fmt.Errorf("parse search.highlight: %w", err)
+	}
+	options.NoSearchHighlight = !highlight
 	// Treat the case settings as one mode: an enabled flag outranks environment
 	// modes, which outrank TOML modes. At the same tier, explicit sensitivity wins
 	// over smart case, which wins over unconditional case folding.

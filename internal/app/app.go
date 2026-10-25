@@ -12,25 +12,29 @@ import (
 // Options contains startup settings resolved by the CLI configuration layer.
 // Its zero value selects cmdheight = 0, with the status row initially hidden.
 type Options struct {
-	CmdHeight     ui.CmdHeight
-	ChunkSize     int
-	Follow        bool
-	Keybinds      map[string][]string
-	SmartCase     bool
-	IgnoreCase    bool
-	CaseSensitive bool
+	CmdHeight         ui.CmdHeight
+	ChunkSize         int
+	Follow            bool
+	Keybinds          map[string][]string
+	SmartCase         bool
+	IgnoreCase        bool
+	CaseSensitive     bool
+	IncrementalSearch bool
+	NoSearchHighlight bool
 }
 
 // App coordinates asynchronous ingestion with viewport-sized rendering.
 type App struct {
-	Document   *pager.Document
-	Renderer   ui.Renderer
-	UI         *ui.Model
-	Keys       *keybind.Matcher
-	SearchKeys *keybind.Matcher
-	SmartCase  bool
-	IgnoreCase bool
-	follow     bool
+	Document          *pager.Document
+	Renderer          ui.Renderer
+	UI                *ui.Model
+	Keys              *keybind.Matcher
+	SearchKeys        *keybind.Matcher
+	SmartCase         bool
+	IgnoreCase        bool
+	IncrementalSearch bool
+	HighlightSearch   bool
+	follow            bool
 }
 
 // New creates document storage and view state without initializing a terminal.
@@ -54,13 +58,15 @@ func New(options Options) (*App, error) {
 		return nil, fmt.Errorf("chunk-size must be positive")
 	}
 	return &App{
-		Document:   pager.NewDocumentWithChunkSize(options.ChunkSize),
-		UI:         model,
-		Keys:       keys,
-		SearchKeys: searchKeys,
-		SmartCase:  options.SmartCase && !options.CaseSensitive,
-		IgnoreCase: options.IgnoreCase && !options.CaseSensitive,
-		follow:     options.Follow,
+		Document:          pager.NewDocumentWithChunkSize(options.ChunkSize),
+		UI:                model,
+		Keys:              keys,
+		SearchKeys:        searchKeys,
+		SmartCase:         options.SmartCase && !options.CaseSensitive,
+		IgnoreCase:        options.IgnoreCase && !options.CaseSensitive,
+		IncrementalSearch: options.IncrementalSearch,
+		HighlightSearch:   !options.NoSearchHighlight,
+		follow:            options.Follow,
 	}, nil
 }
 
