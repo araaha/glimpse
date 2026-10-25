@@ -23,6 +23,18 @@ func (t *Terminal) Render(frame Frame) error {
 		}
 		t.screen.PutStr(0, y, line)
 	}
+	for _, mark := range frame.Highlights {
+		if mark.Row < 0 || mark.Row >= frame.Layout.Body.Height {
+			continue
+		}
+		for x := max(0, mark.Column); x < min(frame.Layout.Body.Width, mark.Column+mark.Width); {
+			text, style, width := t.screen.Get(x, mark.Row)
+			if width > 0 {
+				t.screen.Put(x, mark.Row, text, style.Reverse(true))
+			}
+			x += max(1, width)
+		}
+	}
 	if frame.Layout.StatusRow >= 0 {
 		style := tcell.StyleDefault.Reverse(true)
 		t.screen.FillArea(0, frame.Layout.StatusRow, frame.Layout.Body.Width, 1, ' ', style)

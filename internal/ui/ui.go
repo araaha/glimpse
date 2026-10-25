@@ -16,7 +16,10 @@ type Frame struct {
 	Search       string
 	SearchActive bool
 	SearchCursor int // Rune index in Search, including the direction prefix.
+	Highlights   []Highlight
 }
+
+type Highlight struct{ Row, Column, Width int }
 
 // Renderer draws a bounded frame, independently of how the document is stored.
 type Renderer interface {
