@@ -112,3 +112,33 @@ func TestIgnoreCase(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchSkipsSupportedAndUnsupportedANSI(t *testing.T) {
+	doc := pager.NewDocument()
+	defer doc.Close()
+	doc.Write([]byte("pre\x1b[31mnee\x1b[0mdle\x1b]52;secret\a end"))
+	got, err := Find(context.Background(), doc, "needle", 0, false, false, false, true)
+	if err != nil || !got.Found || got.Offset != 8 {
+		t.Fatalf("styled search = %+v, %v", got, err)
+	}
+	got, err = Find(context.Background(), doc, "secret", 0, false, false, false, true)
+	if err != nil || got.Found {
+		t.Fatalf("control string was searchable: %+v, %v", got, err)
+	}
+}
+
+func TestSearchNormalizesManOverstrikes(t *testing.T) {
+	doc := pager.NewDocument()
+	defer doc.Close()
+	doc.Write([]byte("w\bwo\bor\brd\bd _\bu\n"))
+	for _, query := range []string{"word", "u"} {
+		got, err := Find(context.Background(), doc, query, 0, false, false, false, true)
+		if err != nil || !got.Found {
+			t.Fatalf("query %q: %+v, %v", query, got, err)
+		}
+	}
+	got, err := Find(context.Background(), doc, "_", 0, false, false, false, true)
+	if err != nil || got.Found {
+		t.Fatalf("underline marker is not visible text: %+v %v", got, err)
+	}
+}

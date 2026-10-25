@@ -2,9 +2,9 @@
 package search
 
 import (
-	"bufio"
 	"context"
 	"errors"
+	"glimpse/internal/content"
 	"io"
 	"unicode"
 )
@@ -84,22 +84,25 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 	end = min(end, source.Len())
 	start = min(max(sourceStart(source), start), end)
 	offsets := make([]int64, len(pattern))
-	reader := bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), 64*1024)
-	position, index := start, int64(0)
+	reader := searchReader{reader: content.NewReader(source, start, end, 0, true), ctx: ctx}
+	index := int64(0)
 	matched := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		r, size, err := reader.ReadRune()
+		token, err := reader.next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return err
 		}
-		offsets[index%int64(len(pattern))] = position
-		position += int64(size)
+		if token.Hidden {
+			continue
+		}
+		r := token.Raw
+		offsets[index%int64(len(pattern))] = token.Start
 		index++
 		if fold {
 			r = foldRune(r)
@@ -115,7 +118,7 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 		}
 		offset := offsets[(index-int64(len(pattern)))%int64(len(pattern))]
 		matched = prefix[matched-1] // Preserve overlapping matches.
-		if !visit(offset, position) {
+		if !visit(offset, token.End) {
 			return nil
 		}
 	}
