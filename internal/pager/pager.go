@@ -14,7 +14,12 @@ type Document struct {
 
 // NewDocument creates an empty document.
 func NewDocument() *Document {
-	return &Document{data: NewStore(DefaultChunkSize)}
+	return NewDocumentWithChunkSize(DefaultChunkSize)
+}
+
+// NewDocumentWithChunkSize creates a document with a positive chunk size.
+func NewDocumentWithChunkSize(chunkSize int) *Document {
+	return &Document{data: NewStore(chunkSize)}
 }
 
 // Write appends input bytes to the document. It implements io.Writer.
@@ -24,7 +29,9 @@ func (d *Document) Write(p []byte) (int, error) {
 
 // ReadFrom streams all bytes from r into the document.
 func (d *Document) ReadFrom(r io.Reader) (int64, error) {
-	return io.Copy(d, r)
+	// Copy to the underlying writer: copying to d would invoke ReadFrom again
+	// for readers without a WriterTo method, recursing instead of reading.
+	return io.Copy(d.data, r)
 }
 
 // Len reports the total number of bytes ingested so far.
