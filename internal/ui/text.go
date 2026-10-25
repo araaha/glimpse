@@ -3,6 +3,7 @@ package ui
 import (
 	"bufio"
 	"errors"
+	"glimpse/internal/pager"
 	"io"
 	"sort"
 	"strings"
@@ -21,32 +22,81 @@ type TextSource interface {
 // logical lines. An unfinished line is available immediately. Resizing rebuilds
 // the row index; full grapheme-aware reflow and ANSI styling are future work.
 type Text struct {
-	source     TextSource
-	starts     []int64
-	lineStarts []int64
-	scanned    int64
-	width      int
-	column     int
-	buffer     [64 * 1024]byte
+	source                  TextSource
+	starts                  *offsetIndex
+	lineStarts              *offsetIndex
+	indexMemory, indexQuota int64
+	base                    int64
+	scanned                 int64
+	width                   int
+	column                  int
+	buffer                  [64 * 1024]byte
 }
 
-func NewText(source TextSource) *Text { return &Text{source: source} }
+func NewText(source TextSource) *Text {
+	text, _ := NewTextWithLimits(source, 8<<20, 256<<20)
+	return text
+}
+
+func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
+	if memory < 16<<10 || quota < 16 {
+		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 16 bytes")
+	}
+	return &Text{source: source, indexMemory: memory, indexQuota: quota}, nil
+}
+
+func (t *Text) Close() error {
+	var first, second error
+	if t.starts != nil {
+		first = t.starts.close()
+	}
+	if t.lineStarts != nil {
+		second = t.lineStarts.close()
+	}
+	return errors.Join(first, second)
+}
+
+func (t *Text) reset(width int, base int64) error {
+	if err := t.Close(); err != nil {
+		return err
+	}
+	t.width, t.column, t.scanned, t.base = width, 0, base, base
+	t.starts = newOffsetIndex(t.indexMemory/2, t.indexQuota/2)
+	t.lineStarts = newOffsetIndex(t.indexMemory/2, t.indexQuota/2)
+	if err := t.starts.append(base); err != nil {
+		return err
+	}
+	return t.lineStarts.append(base)
+}
 
 // Update indexes only newly available bytes unless the terminal width changed.
 // complete allows an incomplete UTF-8 suffix at EOF to be shown as replacement
 // characters instead of waiting for further input.
 func (t *Text) Update(width int, complete bool) error {
 	width = max(1, width)
-	if t.width != width {
-		t.width, t.column, t.scanned = width, 0, 0
-		t.starts = []int64{0}
-		t.lineStarts = []int64{0}
+	base := int64(0)
+	if source, ok := t.source.(interface{ Start() int64 }); ok {
+		base = source.Start()
+	}
+	if t.width != width || t.base != base {
+		if err := t.reset(width, base); err != nil {
+			return err
+		}
+	}
+	if t.starts.err != nil {
+		return t.starts.err
+	}
+	if t.lineStarts.err != nil {
+		return t.lineStarts.err
 	}
 	end := t.source.Len()
 	for t.scanned < end {
 		want := int(min(int64(len(t.buffer)), end-t.scanned))
 		n, err := t.source.ReadAt(t.buffer[:want], t.scanned)
 		if err != nil && !errors.Is(err, io.EOF) {
+			if errors.Is(err, pager.ErrEvicted) {
+				return nil
+			}
 			return err
 		}
 		used := 0
@@ -58,7 +108,9 @@ func (t *Text) Update(width int, complete bool) error {
 				}
 				r, size = utf8.DecodeRune(t.buffer[used:n])
 			}
-			t.addRune(r, t.scanned+int64(used), size)
+			if err := t.addRune(r, t.scanned+int64(used), size); err != nil {
+				return err
+			}
 			used += size
 		}
 		t.scanned += int64(used)
@@ -69,25 +121,32 @@ func (t *Text) Update(width int, complete bool) error {
 	return nil
 }
 
-func (t *Text) addRune(r rune, offset int64, size int) {
+func (t *Text) addRune(r rune, offset int64, size int) error {
 	if r == '\n' {
-		t.starts = append(t.starts, offset+int64(size))
-		t.lineStarts = append(t.lineStarts, offset+int64(size))
+		if err := t.starts.append(offset + int64(size)); err != nil {
+			return err
+		}
+		if err := t.lineStarts.append(offset + int64(size)); err != nil {
+			return err
+		}
 		t.column = 0
-		return
+		return nil
 	}
 	if r == '\r' {
-		return // Treat CRLF as one line ending.
+		return nil // Treat CRLF as one line ending.
 	}
 	w := runeWidth(r)
 	if w > 0 && t.column > 0 && t.column+w > t.width {
-		t.starts = append(t.starts, offset)
+		if err := t.starts.append(offset); err != nil {
+			return err
+		}
 		t.column = 0
 	}
 	if r == '\t' {
 		w = min(8-t.column%8, t.width-t.column)
 	}
 	t.column += min(w, t.width)
+	return nil
 }
 
 func runeWidth(r rune) int {
@@ -101,8 +160,11 @@ func runeWidth(r rune) int {
 }
 
 func (t *Text) RowCount() int {
-	count := len(t.starts)
-	if count > 0 && t.starts[count-1] == t.scanned {
+	if t.starts == nil {
+		return 0
+	}
+	count := t.starts.count
+	if count > 0 && t.starts.at(count-1) == t.scanned {
 		count-- // A final newline does not create an extra empty display row.
 	}
 	return count
@@ -112,25 +174,31 @@ func (t *Text) Offset(row int) int64 {
 	if t.RowCount() == 0 {
 		return 0
 	}
-	return t.starts[min(max(0, row), t.RowCount()-1)]
+	return t.starts.at(min(max(0, row), t.RowCount()-1))
 }
 
 // RowAt preserves the approximate byte position when the screen is resized.
 func (t *Text) RowAt(offset int64) int {
-	return max(0, sort.Search(len(t.starts), func(i int) bool { return t.starts[i] > offset })-1)
+	if t.starts == nil {
+		return 0
+	}
+	return max(0, sort.Search(t.starts.count, func(i int) bool { return t.starts.at(i) > offset })-1)
 }
 
 // LineRow returns the first wrapped row of a one-based logical line. Requests
 // beyond the available input clamp to the last line, ignoring a final newline.
 func (t *Text) LineRow(line int) int {
-	count := len(t.lineStarts)
-	if count > 0 && t.lineStarts[count-1] == t.scanned {
+	if t.lineStarts == nil {
+		return 0
+	}
+	count := t.lineStarts.count
+	if count > 0 && t.lineStarts.at(count-1) == t.scanned {
 		count--
 	}
 	if count == 0 {
 		return 0
 	}
-	return t.RowAt(t.lineStarts[min(max(1, line), count)-1])
+	return t.RowAt(t.lineStarts.at(min(max(1, line), count) - 1))
 }
 
 func (t *Text) Lines(top, height int) ([]string, error) {
@@ -138,10 +206,14 @@ func (t *Text) Lines(top, height int) ([]string, error) {
 	var reader *bufio.Reader
 	for row := max(0, top); row < t.RowCount() && len(lines) < height; row++ {
 		end := t.scanned
-		if row+1 < len(t.starts) {
-			end = t.starts[row+1]
+		if row+1 < t.starts.count {
+			end = t.starts.at(row + 1)
 		}
-		section := io.NewSectionReader(t.source, t.starts[row], end-t.starts[row])
+		start := t.starts.at(row)
+		if t.starts.err != nil {
+			return nil, t.starts.err
+		}
+		section := io.NewSectionReader(t.source, start, end-start)
 		if reader == nil {
 			reader = bufio.NewReaderSize(section, 4096)
 		} else {

@@ -26,8 +26,8 @@ func (t *Text) Highlights(lines []string, top int, query string, smart, ignore b
 	for row := range lines {
 		start := t.Offset(top + row)
 		end := t.scanned
-		if top+row+1 < len(t.starts) {
-			end = t.starts[top+row+1]
+		if top+row+1 < t.starts.count {
+			end = t.starts.at(top + row + 1)
 		}
 		reader := bufio.NewReaderSize(io.NewSectionReader(t.source, start, end-start), 4096)
 		column, budget := 0, max(256, t.width*16)-t.width*utf8.UTFMax

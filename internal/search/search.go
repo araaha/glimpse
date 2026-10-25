@@ -26,9 +26,10 @@ type Result struct {
 // KMP keeps both working memory and read buffers bounded by
 // the query size, even on an indefinitely long logical line.
 func Find(ctx context.Context, source Source, query string, origin int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
-	origin = min(max(0, origin), source.Len())
+	base := sourceStart(source)
+	origin = min(max(base, origin), source.Len())
 	var best, wrapped Result
-	err := Walk(ctx, source, query, 0, source.Len(), smartCase, ignoreCase, func(offset, end int64) bool {
+	err := Walk(ctx, source, query, base, source.Len(), smartCase, ignoreCase, func(offset, end int64) bool {
 		eligible := offset > origin || (include && offset == origin)
 		if backward {
 			eligible = offset < origin || (include && offset == origin)
@@ -81,7 +82,7 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 		prefix[i] = j
 	}
 	end = min(end, source.Len())
-	start = min(max(0, start), end)
+	start = min(max(sourceStart(source), start), end)
 	offsets := make([]int64, len(pattern))
 	reader := bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), 64*1024)
 	position, index := start, int64(0)
@@ -119,6 +120,13 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 		}
 	}
 	return nil
+}
+
+func sourceStart(source Source) int64 {
+	if retained, ok := source.(interface{ Start() int64 }); ok {
+		return retained.Start()
+	}
+	return 0
 }
 
 func foldRune(r rune) rune {
