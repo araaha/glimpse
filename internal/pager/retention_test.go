@@ -164,3 +164,24 @@ func TestStorageOptionValidationAndSpoolFailure(t *testing.T) {
 		t.Fatal("spool error ignored")
 	}
 }
+
+func TestTruncatedBackingFileIsUnexpectedEOF(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	os.WriteFile(path, []byte("original data"), 0o600)
+	file, _ := os.Open(path)
+	defer file.Close()
+	doc := NewDocument()
+	defer doc.Close()
+	if _, err := doc.ReadFrom(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ReadAt(make([]byte, 8), 0); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("missing snapshot bytes = %v", err)
+	}
+	if _, err := doc.ReadAt(make([]byte, 1), doc.Len()); !errors.Is(err, io.EOF) {
+		t.Fatalf("normal boundary EOF = %v", err)
+	}
+}

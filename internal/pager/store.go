@@ -231,11 +231,17 @@ func (s *Store) readAt(p []byte, off int64) (int, error) {
 		if err != nil && !errors.Is(err, io.EOF) {
 			return n, err
 		}
+		if n < want {
+			return n, io.ErrUnexpectedEOF
+		}
 	} else if s.spool != nil {
 		var err error
 		n, err = s.spool.ReadAt(p[:want], off)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return n, err
+		}
+		if n < want {
+			return n, io.ErrUnexpectedEOF
 		}
 	} else if len(s.ring) > 0 {
 		position := int(off % int64(len(s.ring)))
