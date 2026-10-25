@@ -25,13 +25,40 @@ func TestKeyFromEvent(t *testing.T) {
 		{tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone), "<Esc>"},
 		{tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone), "<Up>"},
 		{tcell.NewEventKey(tcell.KeyRune, "界", tcell.ModNone), "界"},
-		{tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModAlt), ""},
+		{tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModAlt), "<M-g>"},
+		{tcell.NewEventKey(tcell.KeyRune, "b", tcell.ModMeta), "<M-b>"},
+		{tcell.NewEventKey(tcell.KeyLeft, "", tcell.ModCtrl), "<C-Left>"},
+		{tcell.NewEventKey(tcell.KeyRight, "", tcell.ModCtrl), "<C-Right>"},
+		{tcell.NewEventKey(tcell.KeyBackspace2, "", tcell.ModAlt), "<M-Backspace>"},
+		{tcell.NewEventKey(tcell.KeyDelete, "", tcell.ModNone), "<Delete>"},
+		{tcell.NewEventKey(tcell.KeyCtrlB, "", tcell.ModCtrl|tcell.ModAlt), "<C-M-b>"},
+		{tcell.NewEventKey(tcell.KeyRune, "<", tcell.ModAlt), "<M-<>"},
 		{tcell.NewEventKeyEx(tcell.KeyRune, "g", tcell.ModNone, false, 0, 1), ""},
 	}
 	for _, tt := range tests {
 		got, ok := KeyFromEvent(tt.event)
 		if got != tt.want || ok != (tt.want != "") {
 			t.Errorf("KeyFromEvent(%s) = (%q, %v), want %q", tt.event.Name(), got, ok, tt.want)
+		}
+	}
+}
+
+func TestSearchLineScrollingAndSafety(t *testing.T) {
+	for _, tt := range []struct {
+		text          string
+		cursor, width int
+		want          string
+		column        int
+	}{
+		{"/abcdef", 7, 5, "cdef", 4},
+		{"/界界x", 4, 5, "界x", 3},
+		{"/abc", 1, 5, "/abc", 1},
+		{"/abc", 0, 0, "", 0},
+		{"\x1b", 0, 20, "'\\x1b'", 0},
+	} {
+		got, column := searchLine(tt.text, tt.cursor, tt.width)
+		if got != tt.want || column != tt.column {
+			t.Fatalf("searchLine(%q, %d, %d) = (%q, %d), want (%q, %d)", tt.text, tt.cursor, tt.width, got, column, tt.want, tt.column)
 		}
 	}
 }

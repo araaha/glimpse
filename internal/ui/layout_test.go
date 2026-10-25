@@ -87,3 +87,26 @@ func TestNewModelRejectsInvalidCmdHeight(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchFooterLayouts(t *testing.T) {
+	for _, mode := range []CmdHeight{-1, 0, 1} {
+		model, _ := NewModel(mode)
+		before := model.Layout(80, 24)
+		model.SetSearchVisible(true)
+		layout := model.Layout(80, 24)
+		wantHeight, wantStatus := 23, -1
+		if mode == 1 {
+			wantHeight, wantStatus = 22, 22
+		}
+		if layout.Body.Height != wantHeight || layout.StatusRow != wantStatus || layout.SearchRow != 23 {
+			t.Fatalf("mode %d search layout = %+v", mode, layout)
+		}
+		if tiny := model.Layout(1, 1); tiny.SearchRow != 0 || tiny.Body.Height != 0 || tiny.StatusRow != -1 {
+			t.Fatalf("tiny search layout = %+v", tiny)
+		}
+		model.SetSearchVisible(false)
+		if got := model.Layout(80, 24); got != before {
+			t.Fatalf("mode %d search changed status visibility: %+v", mode, got)
+		}
+	}
+}

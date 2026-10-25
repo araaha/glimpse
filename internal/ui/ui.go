@@ -10,9 +10,12 @@ type Viewport struct {
 
 // Frame contains only the text and footer needed for one screen update.
 type Frame struct {
-	Layout Layout
-	Lines  []string
-	Status string
+	Layout       Layout
+	Lines        []string
+	Status       string
+	Search       string
+	SearchActive bool
+	SearchCursor int // Rune index in Search, including the direction prefix.
 }
 
 // Renderer draws a bounded frame, independently of how the document is stored.
