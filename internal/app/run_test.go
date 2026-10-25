@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -132,6 +133,47 @@ func TestRunAmbiguousBindingPrefersLongerSequence(t *testing.T) {
 	waitFrame(t, viewer.frames, firstFrameLine("one"))
 	viewer.press("q")
 	viewer.expectExit(t)
+}
+
+func TestRunFollowAndNavigationInSameActionBatch(t *testing.T) {
+	var input strings.Builder
+	for row := 0; row < 20; row++ {
+		fmt.Fprintf(&input, "row%02d\n", row)
+	}
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{
+		"follow": {"x"}, "top": {"x", "x"},
+	}}, input.String(), 8, 4)
+	viewer.press("j")
+	waitFrame(t, viewer.frames, firstFrameLine("row01"))
+	viewer.press("j")
+	waitFrame(t, viewer.frames, firstFrameLine("row02"))
+	// x followed by k resolves to follow then up in a single key-event batch.
+	viewer.press("x", "k")
+	waitFrame(t, viewer.frames, firstFrameLine("row15"))
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestFollowJumpSurvivesNavigationBeforeRepaint(t *testing.T) {
+	for _, tt := range []struct {
+		action keybind.Action
+		top    int
+	}{
+		{keybind.Up, 15},
+		{keybind.PageUp, 12},
+		{keybind.HalfPageUp, 14},
+		{keybind.Down, 16},
+	} {
+		t.Run(string(tt.action), func(t *testing.T) {
+			view := viewState{top: 2, height: 4}
+			view.apply(keybind.Follow, 20, 4)
+			view.apply(tt.action, 20, 4)
+			view.reflow(view.top, 20, 4, false)
+			if view.top != tt.top || view.follow || view.bottom {
+				t.Fatalf("follow then %s before repaint = %+v, want top %d with follow off", tt.action, view, tt.top)
+			}
+		})
+	}
 }
 
 type recordingRenderer struct {

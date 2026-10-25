@@ -194,7 +194,12 @@ func (v *viewState) apply(action keybind.Action, rows, height int) {
 	switch action {
 	case keybind.Follow:
 		v.follow = !v.follow
-		v.bottom = v.follow // Explicitly enabling follow jumps to the end now.
+		if v.follow {
+			// Update the position now so another action in this event/frame
+			// navigates from the end, not from the pre-follow position.
+			v.top = max(0, rows-page)
+			v.bottom = true // Still catch up with new data before repainting.
+		}
 		return
 	case keybind.Top:
 		v.top = 0
