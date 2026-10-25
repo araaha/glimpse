@@ -305,6 +305,29 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		return false, nil
 	}
+	dispatchKeys := func(keys []keybind.Key) (bool, error) {
+		var batches []*prompt
+		defer func() {
+			for _, p := range batches {
+				p.batching = false
+				p.cursor = p.align(p.cursor, true)
+			}
+		}()
+		for _, key := range keys {
+			if search.prompt != nil {
+				if len(keys) > 1 && !search.prompt.batching {
+					search.prompt.batching = true
+					batches = append(batches, search.prompt)
+				}
+				if quit, err := applyPrompt(a.SearchKeys.Feed(key)); quit || err != nil {
+					return quit, err
+				}
+			} else if quit, err := apply(a.Keys.Feed(key)); quit || err != nil {
+				return quit, err
+			}
+		}
+		return false, nil
+	}
 
 	// Paint immediately rather than waiting for the first frame tick.
 	if err := draw(a.Document.Len()); err != nil {
@@ -395,16 +418,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				if len(keys) == 0 {
 					continue
 				}
-				for _, key := range keys {
-					if search.prompt != nil {
-						if quit, err := applyPrompt(a.SearchKeys.Feed(key)); quit || err != nil {
-							return err
-						}
-					} else {
-						if quit, err := apply(a.Keys.Feed(key)); quit || err != nil {
-							return err
-						}
-					}
+				if quit, err := dispatchKeys(keys); quit || err != nil {
+					return err
 				}
 				deadline = time.Now().Add(sequenceTimeout)
 			}

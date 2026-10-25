@@ -432,6 +432,17 @@ func TestRunSearchAcceptsComposedTerminalEvents(t *testing.T) {
 	viewer.expectExit(t)
 }
 
+func TestRunComposedInsertionPreservesExistingSuffixOrder(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, tt := range []struct{ suffix, insertion string }{{"🦊", "👩‍💻"}, {"🇨", "🇺🇳"}} {
+		viewer := startTestViewer(t, Options{}, "one\ntwo", 20, 2)
+		viewer.press("/", tt.suffix, "<C-a>", tt.insertion)
+		waitFrame(t, viewer.frames, searchFrame("/"+tt.insertion+tt.suffix, true))
+		viewer.press("<Esc>", "q")
+		viewer.expectExit(t)
+	}
+}
+
 func TestRunSearchHistoryFailureIsNonfatal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

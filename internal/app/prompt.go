@@ -20,6 +20,7 @@ type prompt struct {
 	history      []string
 	historyIndex int
 	draft        string
+	batching     bool
 }
 
 func newPrompt(backward bool, entries []string) *prompt {
@@ -85,7 +86,14 @@ func (p *prompt) wordRight() int {
 }
 
 func (p *prompt) edit(command keybind.Command) {
-	defer func() { p.cursor = p.align(p.cursor, true) }()
+	if command.Action != keybind.Insert {
+		p.cursor = p.align(p.cursor, true)
+	}
+	defer func() {
+		if !p.batching || command.Action != keybind.Insert {
+			p.cursor = p.align(p.cursor, true)
+		}
+	}()
 	switch command.Action {
 	case keybind.Insert:
 		if utf8.ValidString(command.Text) && len(string(p.text))+len(command.Text) <= search.MaxQueryBytes {
