@@ -13,6 +13,8 @@ type prompt struct {
 	text         []rune
 	cursor       int
 	backward     bool
+	command      bool
+	origin       int64
 	history      []string
 	historyIndex int
 	draft        string

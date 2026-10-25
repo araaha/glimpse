@@ -225,6 +225,52 @@ func TestRunRapidSearchRepeatsAreNotDropped(t *testing.T) {
 	viewer.expectExit(t)
 }
 
+func TestRunIncrementalSearchRestoresAnchor(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{IncrementalSearch: true}, "start\none\ntwo\ntarget\nend", 12, 2)
+	viewer.press("/")
+	viewer.typeText("target")
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.SearchActive && firstFrameLine("target")(frame) })
+	if len(frame.Highlights) == 0 {
+		t.Fatal("preview not highlighted")
+	}
+	viewer.press("<Esc>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.SearchActive && firstFrameLine("start")(frame) })
+	viewer.press("n")
+	waitFrame(t, viewer.frames, searchFrame("No previous search", false))
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunCommandPrompt(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{}, "one\ntwo\nthree\nfour", 12, 2)
+	viewer.press(":")
+	viewer.typeText("3")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, firstFrameLine("three"))
+	viewer.press(":")
+	viewer.typeText("q")
+	viewer.press("<Enter>")
+	viewer.expectExit(t)
+}
+
+func TestRunPasteDoesNotExecuteBindings(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{}, "one\ntwo\nthree", 12, 2)
+	viewer.screen.EventQ() <- tcell.NewEventPaste(true)
+	viewer.typeText("q/G")
+	viewer.screen.EventQ() <- tcell.NewEventPaste(false)
+	viewer.press("/")
+	viewer.screen.EventQ() <- tcell.NewEventPaste(true)
+	viewer.typeText("q/界")
+	viewer.press("<Enter>")
+	viewer.screen.EventQ() <- tcell.NewEventPaste(false)
+	waitFrame(t, viewer.frames, searchFrame("/q/界", true))
+	viewer.press("<Esc>", "q")
+	viewer.expectExit(t)
+}
+
 func TestRunSearchHistoryFailureIsNonfatal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

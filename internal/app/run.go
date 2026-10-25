@@ -33,6 +33,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		return fmt.Errorf("initialize terminal: %w", err)
 	}
 	defer screen.Fini()
+	screen.EnablePaste()
 	if a.Renderer == nil {
 		a.Renderer = ui.NewTerminal(screen)
 	}
@@ -56,6 +57,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	reading, dirty := true, true
 	var previousLength int64 = -1
 	var deadline time.Time
+	pasting := false
 	layout := a.UI.Layout(screen.Size())
 
 	draw := func(length int64) error {
@@ -80,10 +82,16 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
 		frame := ui.Frame{Layout: layout, Lines: lines, Status: status, Search: search.message}
+		if a.HighlightSearch {
+			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
+		}
 		if search.prompt != nil {
 			prefix := "/"
 			if search.prompt.backward {
 				prefix = "?"
+			}
+			if search.prompt.command {
+				prefix = ":"
 			}
 			frame.Search = prefix + string(search.prompt.text)
 			frame.SearchActive = true
@@ -112,8 +120,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		for _, command := range actions {
 			action := command.Action
 			switch action {
-			case keybind.SearchForward, keybind.SearchBackward:
+			case keybind.SearchForward, keybind.SearchBackward, keybind.CommandInput:
 				search.begin(action == keybind.SearchBackward)
+				if action == keybind.CommandInput {
+					search.prompt = newPrompt(false, search.commandHistory.Entries)
+					search.prompt.command = true
+				}
+				search.prompt.origin = text.Offset(view.top)
 				view.follow, view.bottom = false, false
 				a.Keys.Cancel()
 				a.SearchKeys.Cancel()
@@ -168,6 +181,23 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		return false, nil
 	}
+	preview := func() {
+		p := search.prompt
+		if p == nil || p.command || !a.IncrementalSearch {
+			return
+		}
+		search.stop()
+		query := string(p.text)
+		if query == "" {
+			search.query, search.backward = search.original.query, search.original.backward
+			search.match, search.matched = search.original.match, search.original.matched
+			search.message = ""
+			view.top = text.RowAt(p.origin)
+			return
+		}
+		search.query, search.backward, search.matched = query, p.backward, false
+		search.start(ctx, a.Document, p.origin, p.backward, a.SmartCase, a.IgnoreCase, true)
+	}
 	applyPrompt = func(commands []keybind.Command) (bool, error) {
 		for i := len(commands) - 1; i >= 0; i-- {
 			if commands[i].Action == keybind.SearchCancel {
@@ -181,16 +211,46 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			switch command.Action {
 			case keybind.SearchCancel:
+				search.stop()
+				view.top = text.RowAt(search.prompt.origin)
+				search.query, search.backward = search.original.query, search.original.backward
+				search.match, search.matched = search.original.match, search.original.matched
 				search.prompt = nil
 				search.message = ""
 				a.SearchKeys.Cancel()
 			case keybind.Accept:
 				query := string(search.prompt.text)
 				backward := search.prompt.backward
+				isCommand := search.prompt.command
 				search.prompt = nil
 				a.SearchKeys.Cancel()
+				if isCommand {
+					result, err := a.command(query)
+					if err != nil {
+						search.message = err.Error()
+					} else {
+						if result.quit {
+							return true, nil
+						}
+						search.message = result.message
+						if result.line > 0 {
+							if err := text.Update(layout.Body.Width, !reading); err != nil {
+								return false, err
+							}
+							view.top = text.LineRow(result.line)
+						} else if result.action != "" {
+							view.apply(result.action, text.RowCount(), layout.Body.Height)
+						}
+						if query != "" {
+							if err := search.commandHistory.Add(query); err != nil {
+								search.message += fmt.Sprintf(" [history: %v]", err)
+							}
+						}
+					}
+					break
+				}
 				if query == "" {
-					query = search.query
+					query = search.original.query
 				}
 				if query == "" {
 					search.message = "No previous search"
@@ -203,7 +263,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				view.follow, view.bottom = false, false
 				search.start(ctx, a.Document, text.Offset(view.top), backward, a.SmartCase, a.IgnoreCase, true)
 			default:
+				before := string(search.prompt.text)
 				search.prompt.edit(command)
+				if string(search.prompt.text) != before {
+					preview()
+				}
 			}
 			dirty = true
 			if command.Action == keybind.Accept || command.Action == keybind.SearchCancel {
@@ -274,12 +338,22 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				return nil
 			}
 			switch ev := event.(type) {
+			case *tcell.EventPaste:
+				pasting = ev.Start()
 			case *tcell.EventResize:
 				screen.Sync()
 				dirty = true
 			case *tcell.EventError:
 				return fmt.Errorf("terminal: %w", ev)
 			case *tcell.EventKey:
+				if pasting {
+					if search.prompt != nil && ev.Pressed() && ev.Key() == tcell.KeyRune {
+						search.prompt.edit(keybind.Command{Action: keybind.Insert, Text: ev.Str()})
+						preview()
+						dirty = true
+					}
+					continue
+				}
 				key, ok := ui.KeyFromEvent(ev)
 				if !ok {
 					continue
