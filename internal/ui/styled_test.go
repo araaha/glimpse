@@ -4,6 +4,7 @@ import (
 	"glimpse/internal/content"
 	"glimpse/internal/pager"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,46 @@ func TestStyleCheckpointsSurviveWrappingAndResize(t *testing.T) {
 				if glyph.Text != "i" && !colored || glyph.Text == "i" && colored {
 					t.Fatalf("width %d: style for %q in %q", width, glyph.Text, lines)
 				}
+			}
+		}
+	}
+}
+
+func TestRollingEvictionPreservesPreviouslyIndexedStyle(t *testing.T) {
+	doc, _ := pager.NewDocumentWithOptions(16, pager.StorageOptions{MemoryBudget: 64, SpoolQuota: 128, Retention: "rolling"})
+	defer doc.Close()
+	text := NewText(doc)
+	defer text.Close()
+	doc.Write([]byte("\x1b[31m" + strings.Repeat("a", 32)))
+	if err := text.Update(8, false); err != nil {
+		t.Fatal(err)
+	}
+	doc.Write([]byte(strings.Repeat("b", 40)))
+	for _, width := range []int{8, 5, 10} {
+		if err := text.Update(width, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := text.Lines(0, 100); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range text.Styled() {
+			for _, glyph := range row {
+				if _, ok := glyph.Style.Foreground(); !ok {
+					t.Fatalf("lost evicted style at width %d", width)
+				}
+			}
+		}
+	}
+	doc.Write([]byte("\x1b[0mc"))
+	if err := text.Update(10, true); err != nil {
+		t.Fatal(err)
+	}
+	text.Lines(0, 100)
+	for _, row := range text.Styled() {
+		for _, glyph := range row {
+			_, colored := glyph.Style.Foreground()
+			if glyph.Text == "c" && colored {
+				t.Fatal("reset lost after eviction")
 			}
 		}
 	}

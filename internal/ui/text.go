@@ -22,19 +22,20 @@ type TextSource interface {
 // logical lines. An unfinished line is available immediately. Resizing rebuilds
 // the row index; full grapheme-aware reflow and ANSI styling are future work.
 type Text struct {
-	source                  TextSource
-	starts                  *offsetIndex
-	lineStarts              *offsetIndex
-	rowStyles               *offsetIndex
-	style                   content.Style
-	cellStarts              []int
-	rendered                [][]Glyph
-	indexMemory, indexQuota int64
-	base                    int64
-	scanned                 int64
-	width                   int
-	column                  int
-	struckWidth             int
+	source                    TextSource
+	starts                    *offsetIndex
+	lineStarts                *offsetIndex
+	rowStyles                 *offsetIndex
+	styleOffsets, styleValues *offsetIndex
+	style                     content.Style
+	cellStarts                []int
+	rendered                  [][]Glyph
+	indexMemory, indexQuota   int64
+	base                      int64
+	scanned                   int64
+	width                     int
+	column                    int
+	struckWidth               int
 }
 
 func NewText(source TextSource) *Text {
@@ -43,14 +44,14 @@ func NewText(source TextSource) *Text {
 }
 
 func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
-	if memory < 16<<10 || quota < 24 {
-		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 24 bytes")
+	if memory < 16<<10 || quota < 40 {
+		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 40 bytes")
 	}
 	return &Text{source: source, indexMemory: memory, indexQuota: quota}, nil
 }
 
 func (t *Text) Close() error {
-	var first, second, third error
+	var first, second, third, fourth, fifth error
 	if t.starts != nil {
 		first = t.starts.close()
 	}
@@ -60,27 +61,49 @@ func (t *Text) Close() error {
 	if t.rowStyles != nil {
 		third = t.rowStyles.close()
 	}
-	return errors.Join(first, second, third)
+	if t.styleOffsets != nil {
+		fourth = t.styleOffsets.close()
+	}
+	if t.styleValues != nil {
+		fifth = t.styleValues.close()
+	}
+	return errors.Join(first, second, third, fourth, fifth)
 }
 
-func (t *Text) reset(width int, base int64) error {
+func (t *Text) reset(width int, base int64, initial content.Style) error {
 	if err := t.Close(); err != nil {
 		return err
 	}
 	t.width, t.column, t.scanned, t.base = width, 0, base, base
-	t.style = 0
+	t.style = initial
 	t.struckWidth = 0
 	t.cellStarts = make([]int, width)
-	t.starts = newOffsetIndex(t.indexMemory/3, t.indexQuota/3)
-	t.lineStarts = newOffsetIndex(t.indexMemory/3, t.indexQuota/3)
-	t.rowStyles = newOffsetIndex(t.indexMemory/3, t.indexQuota/3)
+	t.starts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.lineStarts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.rowStyles = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.styleOffsets = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.styleValues = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
 	if err := t.starts.append(base); err != nil {
 		return err
 	}
-	if err := t.rowStyles.append(0); err != nil {
+	if err := t.rowStyles.append(int64(initial)); err != nil {
+		return err
+	}
+	if err := t.styleOffsets.append(base); err != nil {
+		return err
+	}
+	if err := t.styleValues.append(int64(initial)); err != nil {
 		return err
 	}
 	return t.lineStarts.append(base)
+}
+
+func (t *Text) styleAt(offset int64) content.Style {
+	if t.styleOffsets == nil {
+		return 0
+	}
+	index := max(0, sort.Search(t.styleOffsets.count, func(i int) bool { return t.styleOffsets.at(i) > offset })-1)
+	return content.Style(t.styleValues.at(index))
 }
 
 // Update indexes only newly available bytes unless the terminal width changed.
@@ -93,7 +116,13 @@ func (t *Text) Update(width int, complete bool) error {
 		base = source.Start()
 	}
 	if t.width != width || t.base != base {
-		if err := t.reset(width, base); err != nil {
+		initial := t.styleAt(base)
+		if t.styleOffsets != nil {
+			if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
+				return err
+			}
+		}
+		if err := t.reset(width, base, initial); err != nil {
 			return err
 		}
 	}
@@ -106,6 +135,9 @@ func (t *Text) Update(width int, complete bool) error {
 	if t.rowStyles.err != nil {
 		return t.rowStyles.err
 	}
+	if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
+		return err
+	}
 	reader := content.NewReader(t.source, t.scanned, t.source.Len(), t.style, complete)
 	for {
 		token, err := reader.Next()
@@ -114,6 +146,14 @@ func (t *Text) Update(width int, complete bool) error {
 		}
 		if err != nil {
 			return err
+		}
+		if token.Style != t.style {
+			if err := t.styleOffsets.append(token.End); err != nil {
+				return err
+			}
+			if err := t.styleValues.append(int64(token.Style)); err != nil {
+				return err
+			}
 		}
 		t.style = token.Style
 		if !token.Hidden {

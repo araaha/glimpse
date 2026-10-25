@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-// offsetIndex has a bounded in-memory tail plus one 4 KiB read page. Older
+// offsetIndex has a bounded in-memory tail plus one 1 KiB read page. Older
 // records live in a private temporary file, subject to a separate hard quota.
 // It never retains a Go object or slice header per spilled record.
 type offsetIndex struct {
@@ -16,14 +16,14 @@ type offsetIndex struct {
 	quota          int64
 	count, flushed int
 	file           *os.File
-	page           [4096]byte
+	page           [1024]byte
 	pageOffset     int64
 	pageLength     int
 	err            error
 }
 
 func newOffsetIndex(memory, quota int64) *offsetIndex {
-	limit := int(max(1, (memory-4096)/8))
+	limit := int(max(1, (memory-1024)/8))
 	return &offsetIndex{tail: make([]int64, 0, limit), limit: limit, quota: quota, pageOffset: -1}
 }
 

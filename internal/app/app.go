@@ -74,8 +74,8 @@ func New(options Options) (*App, error) {
 	if options.MetadataQuota == 0 {
 		options.MetadataQuota = 256 << 20
 	}
-	if options.MetadataBudget < 16<<10 || options.MetadataQuota < 24 {
-		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least 24 bytes")
+	if options.MetadataBudget < 16<<10 || options.MetadataQuota < 40 {
+		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least 40 bytes")
 	}
 	document, err := pager.NewDocumentWithOptions(options.ChunkSize, options.Storage)
 	if err != nil {
