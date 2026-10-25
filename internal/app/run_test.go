@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -57,12 +59,190 @@ func startTestViewer(t *testing.T, options Options, input string, width, height 
 
 func (v testViewer) press(keys ...string) {
 	for _, key := range keys {
-		if key == "<Esc>" {
-			v.screen.EventQ() <- tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)
-		} else {
-			v.screen.EventQ() <- tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)
+		code, named := map[string]tcell.Key{
+			"<Esc>": tcell.KeyEsc, "<Enter>": tcell.KeyEnter, "<Up>": tcell.KeyUp, "<Down>": tcell.KeyDown,
+			"<Left>": tcell.KeyLeft, "<Right>": tcell.KeyRight, "<Backspace>": tcell.KeyBackspace2,
+			"<C-w>": tcell.KeyCtrlW, "<C-a>": tcell.KeyCtrlA, "<C-e>": tcell.KeyCtrlE, "<C-u>": tcell.KeyCtrlU,
+		}[key]
+		if named {
+			v.screen.EventQ() <- tcell.NewEventKey(code, "", tcell.ModNone)
+			continue
 		}
+		if strings.HasPrefix(key, "<M-") {
+			v.screen.EventQ() <- tcell.NewEventKey(tcell.KeyRune, key[3:len(key)-1], tcell.ModAlt)
+			continue
+		}
+		v.screen.EventQ() <- tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)
 	}
+}
+
+func (v testViewer) typeText(text string) {
+	for _, r := range text {
+		v.press(string(r))
+	}
+}
+
+func searchFrame(text string, active bool) func(ui.Frame) bool {
+	return func(frame ui.Frame) bool { return frame.Search == text && frame.SearchActive == active }
+}
+
+func TestRunSearchAndRepeat(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{SmartCase: true}, "start\nabcdefghNEEDLEsuffix\ngap\nneedle end\nfinish", 8, 3)
+	viewer.press("/")
+	waitFrame(t, viewer.frames, searchFrame("/", true))
+	viewer.typeText("needle")
+	viewer.press("<Enter>")
+	frame := waitFrame(t, viewer.frames, searchFrame("/needle", false))
+	if !firstFrameLine("NEEDLEsu")(frame) {
+		t.Fatalf("search didn't jump to wrapped match row: %q", frame.Lines)
+	}
+	viewer.press("n")
+	frame = waitFrame(t, viewer.frames, searchFrame("/needle", false))
+	if !firstFrameLine("needle e")(frame) {
+		t.Fatalf("next = %q", frame.Lines)
+	}
+	viewer.press("n")
+	frame = waitFrame(t, viewer.frames, searchFrame("/needle  [wrapped]", false))
+	if !firstFrameLine("NEEDLEsu")(frame) {
+		t.Fatalf("wrap = %q", frame.Lines)
+	}
+	viewer.press("N")
+	frame = waitFrame(t, viewer.frames, searchFrame("/needle  [wrapped]", false))
+	if !firstFrameLine("needle e")(frame) {
+		t.Fatalf("opposite direction = %q", frame.Lines)
+	}
+	viewer.press("?")
+	viewer.typeText("NEEDLE")
+	viewer.press("<Enter>")
+	frame = waitFrame(t, viewer.frames, searchFrame("?NEEDLE", false))
+	if !firstFrameLine("NEEDLEsu")(frame) {
+		t.Fatalf("backward smart-case = %q", frame.Lines)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunSearchEditingHistoryAndRebinding(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	options := Options{
+		Keybinds: map[string][]string{
+			"search-forward": {"s", "s"}, "search-accept": {"<M-s>"},
+			"search-word-left": {"<M-h>"}, "search-word-right": {"<M-l>"},
+		},
+	}
+	viewer := startTestViewer(t, options, "start\none two\nnext\nlast", 12, 3)
+	viewer.press("s", "s")
+	viewer.typeText("one three")
+	viewer.press("<C-w>")
+	waitFrame(t, viewer.frames, searchFrame("/one ", true))
+	viewer.typeText("two")
+	viewer.press("<M-h>")
+	frame := waitFrame(t, viewer.frames, searchFrame("/one two", true))
+	if frame.SearchCursor != 5 {
+		t.Fatalf("word-left cursor = %d", frame.SearchCursor)
+	}
+	viewer.press("<M-l>")
+	frame = waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.SearchActive && frame.SearchCursor == 8 })
+	viewer.press("<M-s>")
+	waitFrame(t, viewer.frames, searchFrame("/one two", false))
+	viewer.press("q")
+	viewer.expectExit(t)
+	// A new viewer loads persistent history and restores the draft with Down.
+	viewer = startTestViewer(t, options, "start\none two\nnext\nlast", 12, 3)
+	viewer.press("s", "s")
+	viewer.typeText("draft")
+	viewer.press("<Up>")
+	waitFrame(t, viewer.frames, searchFrame("/one two", true))
+	viewer.press("<Down>")
+	waitFrame(t, viewer.frames, searchFrame("/draft", true))
+	viewer.press("<Esc>")
+	frame = waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.SearchActive && frame.Layout.SearchRow == -1 })
+	if !firstFrameLine("start")(frame) {
+		t.Fatalf("cancel moved the view: %q", frame.Lines)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunSearchMessagesAndEmptyReuse(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch}, "start\ntarget\nend", 20, 4)
+	viewer.press("n")
+	waitFrame(t, viewer.frames, searchFrame("No previous search", false))
+	viewer.press("/")
+	viewer.typeText("absent")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("Pattern not found: absent", false))
+	viewer.press("/")
+	viewer.typeText("target")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("/target", false))
+	viewer.press("/", "<Enter>")
+	frame := waitFrame(t, viewer.frames, searchFrame("/target", false))
+	if frame.Layout.StatusRow < 0 || frame.Layout.SearchRow < 0 {
+		t.Fatalf("mode 1 lost a footer: %+v", frame.Layout)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunSearchModeSwitchRetriesKeysInNewMode(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{
+		Keybinds: map[string][]string{
+			"search-forward": {"s"}, "up": {"s", "x", "x"},
+			"search-cancel": {"g"}, "search-left": {"g", "g"},
+		},
+	}, "one\ntwo\nthree", 12, 2)
+	// s is a completed search binding, but also a prefix of sxx. The suffix
+	// xq must enter the prompt literally, not be swallowed or quit the pager.
+	viewer.press("s", "x", "q")
+	waitFrame(t, viewer.frames, searchFrame("/xq", true))
+	// A mismatching q after an ambiguous prompt cancellation is a fresh normal
+	// mode quit, just as cancellation preserves commands in the main matcher.
+	viewer.press("g", "q")
+	viewer.expectExit(t)
+}
+
+func TestRunRapidSearchRepeatsAreNotDropped(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{}, "first hit\ngap\nsecond hit\ngap\nthird hit\ngap\nfourth hit", 20, 2)
+	viewer.press("/")
+	viewer.typeText("hit")
+	viewer.press("<Enter>", "n", "n")
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return searchFrame("/hit", false)(frame) && firstFrameLine("third hit")(frame)
+	})
+	if frame.SearchActive {
+		t.Fatal("search remained in input mode")
+	}
+	viewer.press("n", "N")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return searchFrame("/hit", false)(frame) && firstFrameLine("third hit")(frame)
+	})
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunSearchHistoryFailureIsNonfatal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_DATA_HOME", path)
+	viewer := startTestViewer(t, Options{}, "start\ntarget\nend", 30, 3)
+	viewer.press("/")
+	viewer.typeText("target")
+	viewer.press("<Enter>")
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return !frame.SearchActive && strings.HasPrefix(frame.Search, "/target  [history:")
+	})
+	if !firstFrameLine("target")(frame) {
+		t.Fatalf("history failure blocked search: %q", frame.Lines)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
 }
 
 func (v testViewer) expectExit(t *testing.T) {
@@ -123,6 +303,46 @@ func TestRunAmbiguousBindingTimesOut(t *testing.T) {
 	waitFrame(t, viewer.frames, firstFrameLine("two"))
 	viewer.press("q")
 	viewer.expectExit(t)
+}
+
+func TestRunCountedGotoLogicalLine(t *testing.T) {
+	var input strings.Builder
+	for line := 1; line <= 60; line++ {
+		fmt.Fprintf(&input, "line%02d-wrapped\n", line)
+	}
+	for _, tt := range []struct {
+		name    string
+		options Options
+		binding []string
+	}{
+		{"default", Options{Follow: true}, []string{"G"}},
+		{"rebound", Options{Keybinds: map[string][]string{"bottom": {"z", "z"}}}, []string{"z", "z"}},
+		{"ambiguous", Options{Keybinds: map[string][]string{"bottom": {"g"}}}, []string{"g"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			viewer := startTestViewer(t, tt.options, input.String(), 8, 4)
+			viewer.press("5", "0")
+			viewer.press(tt.binding...)
+			frame := waitFrame(t, viewer.frames, firstFrameLine("line50-w"))
+			if len(frame.Lines) < 2 || frame.Lines[1] != "rapped" || strings.Contains(frame.Status, "FOLLOW") {
+				t.Fatalf("counted jump did not preserve wrapping or leave follow: %+v", frame)
+			}
+			viewer.press("1")
+			viewer.press(tt.binding...)
+			waitFrame(t, viewer.frames, firstFrameLine("line01-w"))
+			viewer.press("9", "9", "9")
+			viewer.press(tt.binding...)
+			waitFrame(t, viewer.frames, firstFrameLine("line60-w"))
+			// With no count, the original bottom action fills the last screen.
+			viewer.press(tt.binding...)
+			waitFrame(t, viewer.frames, firstFrameLine("line59-w"))
+			viewer.press("5", "<Esc>")
+			viewer.press(tt.binding...)
+			waitFrame(t, viewer.frames, firstFrameLine("line59-w"))
+			viewer.press("q")
+			viewer.expectExit(t)
+		})
+	}
 }
 
 func TestRunAmbiguousBindingPrefersLongerSequence(t *testing.T) {

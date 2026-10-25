@@ -50,6 +50,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	tick := time.NewTicker(time.Second / 60)
 	defer tick.Stop()
 	text := ui.NewText(a.Document)
+	search := searchState{results: make(chan searchResponse, 1)}
+	defer search.close()
 	view := viewState{follow: a.follow}
 	reading, dirty := true, true
 	var previousLength int64 = -1
@@ -59,6 +61,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	draw := func(length int64) error {
 		anchor := text.Offset(view.top)
 		previousRows := text.RowCount()
+		a.UI.SetSearchVisible(search.prompt != nil || search.message != "")
 		layout = a.UI.Layout(screen.Size())
 		if err := text.Update(layout.Body.Width, !reading); err != nil {
 			return err
@@ -76,38 +79,143 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			state += "  FOLLOW"
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
-		if err := a.Renderer.Render(ui.Frame{Layout: layout, Lines: lines, Status: status}); err != nil {
+		frame := ui.Frame{Layout: layout, Lines: lines, Status: status, Search: search.message}
+		if search.prompt != nil {
+			prefix := "/"
+			if search.prompt.backward {
+				prefix = "?"
+			}
+			frame.Search = prefix + string(search.prompt.text)
+			frame.SearchActive = true
+			frame.SearchCursor = 1 + search.prompt.cursor
+		}
+		if err := a.Renderer.Render(frame); err != nil {
 			return err
 		}
 		previousLength = length
 		return nil
 	}
-	apply := func(actions []keybind.Command) bool {
+	var applyPrompt func([]keybind.Command) (bool, error)
+	apply := func(actions []keybind.Command) (bool, error) {
 		// Discard unresolved actions before cancellation, not commands retried
 		// afterward. The trie has already consumed the canceled prefix; any
 		// pending input now belongs to a new command and must be preserved.
 		for i := len(actions) - 1; i >= 0; i-- {
 			if actions[i].Action == keybind.Cancel {
+				search.stop()
+				search.message = ""
+				dirty = true
 				actions = actions[i+1:]
 				break
 			}
 		}
 		for _, command := range actions {
 			action := command.Action
+			switch action {
+			case keybind.SearchForward, keybind.SearchBackward:
+				search.begin(action == keybind.SearchBackward)
+				view.follow, view.bottom = false, false
+				a.Keys.Cancel()
+				a.SearchKeys.Cancel()
+				for _, key := range command.Remainder {
+					if quit, err := applyPrompt(a.SearchKeys.Feed(key)); quit || err != nil {
+						return quit, err
+					}
+				}
+				dirty = true
+				return false, nil
+			case keybind.SearchNext, keybind.SearchPrevious:
+				if search.query == "" {
+					search.message = "No previous search"
+				} else {
+					origin, include := text.Offset(view.top), true
+					if search.matched {
+						origin, include = search.match, false
+					}
+					backward := search.backward
+					if action == keybind.SearchPrevious {
+						backward = !backward
+					}
+					view.follow, view.bottom = false, false
+					if search.busy {
+						search.repeats = append(search.repeats, backward)
+					} else {
+						search.start(ctx, a.Document, origin, backward, a.SmartCase, a.IgnoreCase, include)
+					}
+				}
+				dirty = true
+				continue
+			}
 			if action == keybind.Quit {
-				return true
+				return true, nil
 			}
 			if action == keybind.ToggleStatus {
 				a.UI.ToggleStatusline()
 			} else if action == keybind.Bottom && command.Count > 0 {
+				// Include bytes that arrived since the most recent frame before
+				// resolving a logical line number in a live stream.
+				if err := text.Update(layout.Body.Width, !reading); err != nil {
+					return false, err
+				}
 				view.top = text.LineRow(command.Count)
 				view.follow, view.bottom = false, false
 			} else {
 				view.apply(action, text.RowCount(), layout.Body.Height)
 			}
+			search.stop()
+			search.matched, search.message = false, ""
 			dirty = true
 		}
-		return false
+		return false, nil
+	}
+	applyPrompt = func(commands []keybind.Command) (bool, error) {
+		for i := len(commands) - 1; i >= 0; i-- {
+			if commands[i].Action == keybind.SearchCancel {
+				commands = commands[i:]
+				break
+			}
+		}
+		for _, command := range commands {
+			if search.prompt == nil {
+				break
+			}
+			switch command.Action {
+			case keybind.SearchCancel:
+				search.prompt = nil
+				search.message = ""
+				a.SearchKeys.Cancel()
+			case keybind.Accept:
+				query := string(search.prompt.text)
+				backward := search.prompt.backward
+				search.prompt = nil
+				a.SearchKeys.Cancel()
+				if query == "" {
+					query = search.query
+				}
+				if query == "" {
+					search.message = "No previous search"
+					break
+				}
+				if err := search.history.Add(query); err != nil {
+					search.warning = fmt.Sprintf("history: %v", err)
+				}
+				search.query, search.backward, search.matched = query, backward, false
+				view.follow, view.bottom = false, false
+				search.start(ctx, a.Document, text.Offset(view.top), backward, a.SmartCase, a.IgnoreCase, true)
+			default:
+				search.prompt.edit(command)
+			}
+			dirty = true
+			if command.Action == keybind.Accept || command.Action == keybind.SearchCancel {
+				for _, key := range command.Remainder {
+					if quit, err := apply(a.Keys.Feed(key)); quit || err != nil {
+						return quit, err
+					}
+				}
+				return false, nil
+			}
+		}
+		return false, nil
 	}
 
 	// Paint immediately rather than waiting for the first frame tick.
@@ -125,6 +233,42 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if err != nil {
 				return fmt.Errorf("read input: %w", err)
 			}
+		case response := <-search.results:
+			if response.generation != search.generation {
+				continue
+			}
+			search.busy = false
+			if response.err != nil {
+				search.message = fmt.Sprintf("Search: %v", response.err)
+			} else if !response.result.Found {
+				search.message = "Pattern not found: " + search.query
+				search.matched = false
+			} else {
+				if err := text.Update(layout.Body.Width, !reading); err != nil {
+					return err
+				}
+				search.match, search.matched = response.result.Offset, true
+				view.top = text.RowAt(search.match)
+				view.follow, view.bottom = false, false
+				search.message = "/" + search.query
+				if search.backward {
+					search.message = "?" + search.query
+				}
+				if response.result.Wrapped {
+					search.message += "  [wrapped]"
+				}
+			}
+			if search.warning != "" {
+				search.message += "  [" + search.warning + "]"
+			}
+			if response.err == nil && response.result.Found && len(search.repeats) > 0 {
+				backward := search.repeats[0]
+				search.repeats = search.repeats[1:]
+				search.start(ctx, a.Document, search.match, backward, a.SmartCase, a.IgnoreCase, false)
+			} else if response.err != nil || !response.result.Found {
+				search.repeats = nil
+			}
+			dirty = true
 		case event, ok := <-screen.EventQ():
 			if !ok {
 				return nil
@@ -140,14 +284,28 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				if !ok {
 					continue
 				}
-				if apply(a.Keys.Feed(key)) {
-					return nil
+				if search.prompt != nil {
+					if quit, err := applyPrompt(a.SearchKeys.Feed(key)); quit || err != nil {
+						return err
+					}
+					deadline = time.Now().Add(sequenceTimeout)
+					continue
+				}
+				if quit, err := apply(a.Keys.Feed(key)); quit || err != nil {
+					return err
 				}
 				deadline = time.Now().Add(sequenceTimeout)
 			}
 		case now := <-tick.C:
-			if a.Keys.NeedsTimeout() && !now.Before(deadline) && apply(a.Keys.Flush()) {
-				return nil
+			if search.prompt != nil && a.SearchKeys.NeedsTimeout() && !now.Before(deadline) {
+				if quit, err := applyPrompt(a.SearchKeys.Flush()); quit || err != nil {
+					return err
+				}
+			}
+			if a.Keys.NeedsTimeout() && !now.Before(deadline) {
+				if quit, err := apply(a.Keys.Flush()); quit || err != nil {
+					return err
+				}
 			}
 			length := a.Document.Len()
 			if dirty || length != previousLength {
