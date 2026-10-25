@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
 	"glimpse/internal/keybind"
+	"glimpse/internal/pager"
 	"glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3"
@@ -22,6 +24,7 @@ func (a *App) Run(ctx context.Context, input io.ReadCloser, name string) error {
 	screen, err := tcell.NewScreen(tcell.OptNegotiation(false))
 	if err != nil {
 		input.Close()
+		a.Document.Close()
 		return fmt.Errorf("create terminal: %w", err)
 	}
 	return a.run(ctx, input, name, screen)
@@ -30,6 +33,7 @@ func (a *App) Run(ctx context.Context, input io.ReadCloser, name string) error {
 func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen tcell.Screen) error {
 	if err := screen.Init(); err != nil {
 		input.Close()
+		a.Document.Close()
 		return fmt.Errorf("initialize terminal: %w", err)
 	}
 	defer screen.Fini()
@@ -44,18 +48,24 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		result <- a.Ingest(input)
 	}()
 	defer func() {
-		input.Close() // Unblock a reader waiting on a pipe when the user quits.
+		input.Close()      // Unblock a reader waiting on a pipe when the user quits.
+		a.Document.Close() // Wake a writer paused at the lossless spool quota.
 		<-finished
 	}()
 
 	tick := time.NewTicker(time.Second / 60)
 	defer tick.Stop()
-	text := ui.NewText(a.Document)
+	text, err := ui.NewTextWithLimits(a.Document, a.metadataBudget, a.metadataQuota)
+	if err != nil {
+		return err
+	}
+	defer text.Close()
 	search := searchState{results: make(chan searchResponse, 1)}
 	defer search.close()
 	view := viewState{follow: a.follow}
 	reading, dirty := true, true
 	var previousLength int64 = -1
+	previousPaused := false
 	var deadline time.Time
 	pasting := false
 	layout := a.UI.Layout(screen.Size())
@@ -63,7 +73,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	draw := func(length int64) error {
 		anchor := text.Offset(view.top)
 		previousRows := text.RowCount()
-		a.UI.SetSearchVisible(search.prompt != nil || search.message != "")
+		paused, discarded := a.Document.Paused(), a.Document.Start()
+		a.UI.SetSearchVisible(search.prompt != nil || search.message != "" || paused || discarded > 0)
 		layout = a.UI.Layout(screen.Size())
 		if err := text.Update(layout.Body.Width, !reading); err != nil {
 			return err
@@ -71,6 +82,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		view.reflow(text.RowAt(anchor), text.RowCount(), layout.Body.Height, length != previousLength || text.RowCount() != previousRows)
 		lines, err := text.Lines(view.top, layout.Body.Height)
 		if err != nil {
+			if errors.Is(err, pager.ErrEvicted) {
+				return nil
+			}
 			return err
 		}
 		state := ""
@@ -82,6 +96,12 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
 		frame := ui.Frame{Layout: layout, Lines: lines, Status: status, Search: search.message}
+		if paused && search.prompt == nil {
+			frame.Search = "Storage paused: spool quota reached; :set spool-quota=BYTES to resume"
+		}
+		if discarded > 0 && search.prompt == nil && frame.Search == "" {
+			frame.Search = fmt.Sprintf("Rolling history: %d bytes discarded", discarded)
+		}
 		if a.HighlightSearch {
 			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
 		}
@@ -101,6 +121,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return err
 		}
 		previousLength = length
+		previousPaused = paused
 		return nil
 	}
 	var applyPrompt func([]keybind.Command) (bool, error)
@@ -393,7 +414,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 			}
 			length := a.Document.Len()
-			if dirty || length != previousLength {
+			if dirty || length != previousLength || a.Document.Paused() != previousPaused {
 				if err := draw(length); err != nil {
 					return err
 				}

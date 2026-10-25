@@ -21,20 +21,24 @@ type Options struct {
 	CaseSensitive     bool
 	IncrementalSearch bool
 	NoSearchHighlight bool
+	Storage           pager.StorageOptions
+	MetadataBudget    int64
+	MetadataQuota     int64
 }
 
 // App coordinates asynchronous ingestion with viewport-sized rendering.
 type App struct {
-	Document          *pager.Document
-	Renderer          ui.Renderer
-	UI                *ui.Model
-	Keys              *keybind.Matcher
-	SearchKeys        *keybind.Matcher
-	SmartCase         bool
-	IgnoreCase        bool
-	IncrementalSearch bool
-	HighlightSearch   bool
-	follow            bool
+	Document                      *pager.Document
+	Renderer                      ui.Renderer
+	UI                            *ui.Model
+	Keys                          *keybind.Matcher
+	SearchKeys                    *keybind.Matcher
+	SmartCase                     bool
+	IgnoreCase                    bool
+	IncrementalSearch             bool
+	HighlightSearch               bool
+	metadataBudget, metadataQuota int64
+	follow                        bool
 }
 
 // New creates document storage and view state without initializing a terminal.
@@ -57,8 +61,28 @@ func New(options Options) (*App, error) {
 	if options.ChunkSize < 0 {
 		return nil, fmt.Errorf("chunk-size must be positive")
 	}
+	defaults := pager.DefaultStorageOptions()
+	if options.Storage.MemoryBudget == 0 {
+		options.Storage.MemoryBudget = defaults.MemoryBudget
+	}
+	if options.Storage.SpoolQuota == 0 {
+		options.Storage.SpoolQuota = defaults.SpoolQuota
+	}
+	if options.MetadataBudget == 0 {
+		options.MetadataBudget = 8 << 20
+	}
+	if options.MetadataQuota == 0 {
+		options.MetadataQuota = 256 << 20
+	}
+	if options.MetadataBudget < 16<<10 || options.MetadataQuota < 16 {
+		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least 16 bytes")
+	}
+	document, err := pager.NewDocumentWithOptions(options.ChunkSize, options.Storage)
+	if err != nil {
+		return nil, err
+	}
 	return &App{
-		Document:          pager.NewDocumentWithChunkSize(options.ChunkSize),
+		Document:          document,
 		UI:                model,
 		Keys:              keys,
 		SearchKeys:        searchKeys,
@@ -66,6 +90,8 @@ func New(options Options) (*App, error) {
 		IgnoreCase:        options.IgnoreCase && !options.CaseSensitive,
 		IncrementalSearch: options.IncrementalSearch,
 		HighlightSearch:   !options.NoSearchHighlight,
+		metadataBudget:    options.MetadataBudget,
+		metadataQuota:     options.MetadataQuota,
 		follow:            options.Follow,
 	}, nil
 }

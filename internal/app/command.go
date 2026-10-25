@@ -37,6 +37,16 @@ func (a *App) command(input string) (commandResult, error) {
 	}
 	if len(fields) == 2 && fields[0] == "set" {
 		name, value, explicit := strings.Cut(fields[1], "=")
+		if name == "spool-quota" && explicit {
+			quota, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return commandResult{}, fmt.Errorf("spool-quota requires an integer byte count")
+			}
+			if err := a.Document.SetQuota(quota); err != nil {
+				return commandResult{}, err
+			}
+			return commandResult{message: fmt.Sprintf("spool-quota=%d", quota)}, nil
+		}
 		enabled := true
 		if explicit {
 			var err error

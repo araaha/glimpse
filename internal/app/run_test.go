@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"glimpse/internal/keybind"
+	"glimpse/internal/pager"
 	"glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3"
@@ -319,6 +320,29 @@ func TestRunPasteSettlesPendingLiteralPrefix(t *testing.T) {
 	viewer.screen.EventQ() <- tcell.NewEventPaste(false)
 	waitFrame(t, viewer.frames, searchFrame("/jabc", true))
 	viewer.press("<Esc>", "q")
+	viewer.expectExit(t)
+}
+
+func TestRunQuitUnblocksStorageQuota(t *testing.T) {
+	application, err := New(Options{ChunkSize: 32, Storage: pager.StorageOptions{MemoryBudget: 128, SpoolQuota: 256, SpoolDir: t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 4}), tcell.OptNegotiation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 32)}
+	application.Renderer = recorder
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- application.run(ctx, io.NopCloser(strings.NewReader(strings.Repeat("x", 300))), "test", screen)
+	}()
+	waitFrame(t, recorder.frames, func(frame ui.Frame) bool { return strings.HasPrefix(frame.Search, "Storage paused:") })
+	viewer := testViewer{screen: screen, frames: recorder.frames, result: result}
+	viewer.press("q")
 	viewer.expectExit(t)
 }
 

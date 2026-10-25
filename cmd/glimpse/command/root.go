@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"glimpse/internal/app"
+	"glimpse/internal/pager"
 	"glimpse/internal/ui"
 
 	"github.com/spf13/cobra"
@@ -75,6 +76,11 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 					return err
 				}
 			}
+			for _, name := range []string{"memory-budget", "spool-quota", "metadata-budget", "metadata-quota", "retention", "spool-dir"} {
+				if err := config.BindPFlag("storage."+name, cmd.Flags().Lookup(name)); err != nil {
+					return err
+				}
+			}
 
 			if configFile != "" {
 				config.SetConfigFile(configFile)
@@ -104,6 +110,13 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Bool("case-sensitive", false, "match search case exactly")
 	root.Flags().Bool("incremental-search", false, "preview matches while editing a search")
 	root.Flags().Bool("highlight-search", true, "highlight visible search matches")
+	storage := pager.DefaultStorageOptions()
+	root.Flags().Int64("memory-budget", storage.MemoryBudget, "resident input byte budget")
+	root.Flags().Int64("spool-quota", storage.SpoolQuota, "lossless stream quota in bytes; pause when full")
+	root.Flags().Int64("metadata-budget", 8<<20, "resident row/line index byte budget")
+	root.Flags().Int64("metadata-quota", 256<<20, "maximum row/line index bytes")
+	root.Flags().String("retention", "lossless", "stream retention: lossless or rolling (explicit history loss)")
+	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 statusline initially visible, 0 initially hidden, 1 statusline above search row")
 	return root
 }
@@ -122,6 +135,18 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse follow: %w", err)
 	}
 	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow}
+	for name, destination := range map[string]*int64{
+		"memory-budget": &options.Storage.MemoryBudget, "spool-quota": &options.Storage.SpoolQuota,
+		"metadata-budget": &options.MetadataBudget, "metadata-quota": &options.MetadataQuota,
+	} {
+		value, err := strconv.ParseInt(config.GetString("storage."+name), 10, 64)
+		if err != nil || value <= 0 {
+			return app.Options{}, fmt.Errorf("storage.%s must be a positive integer byte count", name)
+		}
+		*destination = value
+	}
+	options.Storage.Retention = config.GetString("storage.retention")
+	options.Storage.SpoolDir = config.GetString("storage.spool-dir")
 	options.IncrementalSearch, err = strconv.ParseBool(config.GetString("search.incremental"))
 	if err != nil {
 		return app.Options{}, fmt.Errorf("parse search.incremental: %w", err)

@@ -51,6 +51,11 @@ func TestCmdHeightConfiguration(t *testing.T) {
 		{name: "invalid smart case", config: "[search]\nsmart-case = 'bad'\n", wantErr: "parse search.smart-case"},
 		{name: "invalid ignore case", config: "[search]\nignore-case = 'bad'\n", wantErr: "parse search.ignore-case"},
 		{name: "invalid case sensitive", config: "[search]\ncase-sensitive = 'bad'\n", wantErr: "parse search.case-sensitive"},
+		{name: "storage flags", args: []string{"--memory-budget=64", "--spool-quota=128", "--metadata-budget=16384", "--retention=rolling"}, wantErr: noTerminal},
+		{name: "storage TOML", config: "[storage]\nmemory-budget = 64\nspool-quota = 128\nretention = 'rolling'\n", wantErr: noTerminal},
+		{name: "invalid retention", args: []string{"--retention=drop"}, wantErr: "retention must be lossless or rolling"},
+		{name: "invalid memory budget", args: []string{"--memory-budget=0"}, wantErr: "positive integer byte count"},
+		{name: "invalid metadata budget", args: []string{"--metadata-budget=64"}, wantErr: "metadata-budget must be at least"},
 		{name: "too many files", args: []string{"one", "two"}, wantErr: "at most 1"},
 	}
 	for _, tt := range tests {
