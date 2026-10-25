@@ -44,6 +44,42 @@ func TestGraphemeSafetyLimitDoesNotBecomeWrapBoundary(t *testing.T) {
 	}
 }
 
+func TestTrailingNewlineDoesNotAbsorbFollowingStyle(t *testing.T) {
+	input := "a\n\x1b[31m"
+	reader := NewGraphemeReader(strings.NewReader(input), 0, int64(len(input)), 0, false)
+	reader.Next()
+	newline, err := reader.Next()
+	if err != nil || newline.Text != "\n" || newline.End != 2 || newline.AfterStyle != 0 {
+		t.Fatalf("newline swallowed style: %+v, %v", newline, err)
+	}
+	style, err := reader.Next()
+	if err != nil || !style.Hidden || style.Start != 2 || style.End != int64(len(input)) {
+		t.Fatalf("trailing style token: %+v, %v", style, err)
+	}
+}
+
+type readCounter struct {
+	*strings.Reader
+	bytes int
+}
+
+func (r *readCounter) ReadAt(p []byte, offset int64) (int, error) {
+	n, err := r.Reader.ReadAt(p, offset)
+	r.bytes += n
+	return n, err
+}
+
+func TestRenderPrefetchStopsAtBoundedHiddenSuffix(t *testing.T) {
+	input := "x" + strings.Repeat("\x1b[0m", 20000)
+	source := &readCounter{Reader: strings.NewReader(input)}
+	reader := NewGraphemeReader(source, 0, int64(len(input)), 0, true)
+	reader.SetRenderState(1, 0, 0, false)
+	cluster, err := reader.Next()
+	if err != nil || cluster.Text != "x" || source.bytes > 4096 {
+		t.Fatalf("prefetch = %q, %d bytes, %v", cluster.Text, source.bytes, err)
+	}
+}
+
 func FuzzBoundedGraphemeReader(f *testing.F) {
 	for _, input := range []string{"é👩🏽‍💻🇺🇳", "a\x1b[31ḿb", "\r\n\b\t", "\xff\x1b]52;secret\a"} {
 		f.Add(input)

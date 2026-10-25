@@ -3,6 +3,7 @@ package content
 import (
 	"errors"
 	"fmt"
+	"github.com/clipperhouse/displaywidth"
 	"github.com/clipperhouse/uax29/v2/graphemes"
 	"io"
 	"sort"
@@ -25,14 +26,24 @@ type Cluster struct {
 // on progressively larger buffers. This avoids rescanning long combining runs
 // once per rune. Source mappings and buffers remain bounded by MaxClusterBytes.
 type GraphemeReader struct {
-	reader              *Reader
-	data                []byte
-	tokens              []Token
-	ends                []int64
-	encoded, consumed   int64
-	lastEnd, emittedEnd int64
-	lastStyle           Style
-	eof, complete       bool
+	reader                                  *Reader
+	data                                    []byte
+	tokens                                  []Token
+	ends                                    []int64
+	encoded, consumed                       int64
+	lastEnd, emittedEnd                     int64
+	lastStyle                               Style
+	eof, complete                           bool
+	renderWidth, renderColumn, renderExtent int
+	renderWide, checkedFull, full           bool
+	hiddenBytes                             int64
+}
+
+// SetRenderState bounds invisible suffix prefetch only once a row is full.
+// Leading ignored input and ordinary indexing remain unrestricted by this cap.
+func (r *GraphemeReader) SetRenderState(width, column, extent int, wide bool) {
+	r.renderWidth, r.renderColumn, r.renderExtent, r.renderWide = width, column, extent, wide
+	r.checkedFull = false
 }
 
 func NewGraphemeReader(source io.ReaderAt, start, end int64, style Style, complete bool) *GraphemeReader {
@@ -51,8 +62,23 @@ func (r *GraphemeReader) fill(target int) error {
 		}
 		r.lastEnd, r.lastStyle = token.End, token.Style
 		if token.Hidden {
+			if r.renderWidth > 0 {
+				if !r.checkedFull {
+					width := (displaywidth.Options{EastAsianWidth: r.renderWide}).String(string(r.data))
+					r.full = r.renderExtent >= r.renderWidth || r.renderColumn+width >= r.renderWidth
+					r.checkedFull = true
+				}
+				if r.full {
+					r.hiddenBytes += token.End - token.Start
+					if r.hiddenBytes > int64(max(256, r.renderWidth*16)) {
+						r.eof = true
+						break
+					}
+				}
+			}
 			continue
 		}
+		r.hiddenBytes, r.checkedFull = 0, false
 		r.data = utf8.AppendRune(r.data, token.Rune)
 		r.encoded += int64(utf8.RuneLen(token.Rune))
 		r.tokens = append(r.tokens, token)
@@ -104,7 +130,7 @@ func (r *GraphemeReader) Next() (Cluster, error) {
 	token.End = r.tokens[count-1].End
 	after := r.tokens[count-1].Style
 	last := count == len(r.tokens) && r.eof
-	if last {
+	if last && !control {
 		token.End, after = r.lastEnd, r.lastStyle
 	}
 	cluster := Cluster{Token: token, Text: string(r.data[:advance]), AfterStyle: after, Open: last && !r.complete && !control}
