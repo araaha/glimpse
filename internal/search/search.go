@@ -26,9 +26,38 @@ type Result struct {
 // KMP keeps both working memory and read buffers bounded by
 // the query size, even on an indefinitely long logical line.
 func Find(ctx context.Context, source Source, query string, origin int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
+	origin = min(max(0, origin), source.Len())
+	var best, wrapped Result
+	err := Walk(ctx, source, query, 0, source.Len(), smartCase, ignoreCase, func(offset, end int64) bool {
+		eligible := offset > origin || (include && offset == origin)
+		if backward {
+			eligible = offset < origin || (include && offset == origin)
+		}
+		if eligible {
+			best = Result{Offset: offset, Found: true}
+			if !backward {
+				return false
+			}
+		} else if backward || !wrapped.Found {
+			wrapped = Result{Offset: offset, Found: true, Wrapped: true}
+		}
+		return true
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	if best.Found {
+		return best, nil
+	}
+	return wrapped, nil
+}
+
+// Walk streams every (including overlapping) literal match in an absolute byte
+// range. Returning false from visit stops immediately without retaining matches.
+func Walk(ctx context.Context, source Source, query string, start, end int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
 	pattern := []rune(query)
 	if len(pattern) == 0 {
-		return Result{}, nil
+		return nil
 	}
 	fold := smartCase || ignoreCase
 	for _, r := range pattern {
@@ -51,23 +80,22 @@ func Find(ctx context.Context, source Source, query string, origin int64, backwa
 		}
 		prefix[i] = j
 	}
-	length := source.Len()
-	origin = min(max(0, origin), length)
+	end = min(end, source.Len())
+	start = min(max(0, start), end)
 	offsets := make([]int64, len(pattern))
-	reader := bufio.NewReaderSize(io.NewSectionReader(source, 0, length), 64*1024)
-	var position, index int64
+	reader := bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), 64*1024)
+	position, index := start, int64(0)
 	matched := 0
-	var best, wrapped Result
 	for {
 		if err := ctx.Err(); err != nil {
-			return Result{}, err
+			return err
 		}
 		r, size, err := reader.ReadRune()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return Result{}, err
+			return err
 		}
 		offsets[index%int64(len(pattern))] = position
 		position += int64(size)
@@ -86,23 +114,11 @@ func Find(ctx context.Context, source Source, query string, origin int64, backwa
 		}
 		offset := offsets[(index-int64(len(pattern)))%int64(len(pattern))]
 		matched = prefix[matched-1] // Preserve overlapping matches.
-		eligible := offset > origin || (include && offset == origin)
-		if backward {
-			eligible = offset < origin || (include && offset == origin)
-		}
-		if eligible {
-			best = Result{Offset: offset, Found: true}
-			if !backward {
-				return best, nil
-			}
-		} else if backward || !wrapped.Found {
-			wrapped = Result{Offset: offset, Found: true, Wrapped: true}
+		if !visit(offset, position) {
+			return nil
 		}
 	}
-	if best.Found {
-		return best, nil
-	}
-	return wrapped, nil
+	return nil
 }
 
 func foldRune(r rune) rune {

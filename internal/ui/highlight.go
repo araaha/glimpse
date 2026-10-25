@@ -1,60 +1,90 @@
 package ui
 
 import (
-	"regexp"
-	"strings"
-	"unicode"
+	"bufio"
+	"context"
+	"io"
+	"sort"
+	"unicode/utf8"
+
+	"glimpse/internal/search"
 )
 
-// Highlights searches only bounded, already-rendered viewport text. Wrapped rows
-// join without newlines, while real logical line endings keep their separators.
+type sourceCell struct {
+	start, end         int64
+	row, column, width int
+}
+
+// Highlights maps actual source matches to the visible cells. It never searches
+// transformed text (expanded tabs, ignored CR, replacement controls), and retains
+// only viewport-sized metadata even when raw rows contain long invisible spans.
 func (t *Text) Highlights(lines []string, top int, query string, smart, ignore bool) []Highlight {
-	if query == "" {
+	if query == "" || len(lines) == 0 {
 		return nil
 	}
-	fold := smart || ignore
-	if smart {
-		for _, r := range query {
-			if unicode.IsUpper(r) {
-				fold = false
-			}
+	var cells []sourceCell
+	for row := range lines {
+		start := t.Offset(top + row)
+		end := t.scanned
+		if top+row+1 < len(t.starts) {
+			end = t.starts[top+row+1]
 		}
-	}
-	pattern := regexp.QuoteMeta(query)
-	if fold {
-		pattern = "(?i)" + pattern
-	}
-	re := regexp.MustCompile(pattern)
-	type cell struct{ start, end, row, column, width int }
-	var cells []cell
-	var text strings.Builder
-	for row, line := range lines {
-		column := 0
-		for _, r := range line {
-			start := text.Len()
-			text.WriteRune(r)
+		reader := bufio.NewReaderSize(io.NewSectionReader(t.source, start, end-start), 4096)
+		column, budget := 0, max(256, t.width*16)-t.width*utf8.UTFMax
+		suffix := max(256, t.width*16)
+		for {
+			r, size, err := reader.ReadRune()
+			if err != nil || r == '\n' {
+				break
+			}
+			offset := start
+			start += int64(size)
+			if column >= t.width {
+				suffix -= size
+				if suffix < 0 {
+					break
+				}
+			}
+			if r == '\r' {
+				continue
+			}
 			width := runeWidth(r)
-			cells = append(cells, cell{start, text.Len(), row, column, width})
+			if r == '\t' {
+				width = min(8-column%8, t.width-column)
+			}
+			if width > 0 && column+width > t.width {
+				if column == 0 {
+					width = 1
+				} else {
+					break
+				}
+			}
+			if width == 0 {
+				if size > budget {
+					continue
+				}
+				budget -= size
+			}
+			cells = append(cells, sourceCell{offset, start, row, column, width})
 			column += width
 		}
-		if top+row+1 < t.RowCount() {
-			var last [1]byte
-			if _, err := t.source.ReadAt(last[:], t.Offset(top+row+1)-1); err == nil && last[0] == '\n' {
-				text.WriteByte('\n')
-			}
-		}
 	}
-	var result []Highlight
-	index := 0
-	for _, match := range re.FindAllStringIndex(text.String(), -1) {
-		for index < len(cells) && cells[index].end <= match[0] {
-			index++
+	if len(cells) == 0 {
+		return nil
+	}
+	marked := make([]bool, len(cells))
+	padding := int64(utf8.RuneCountInString(query) * utf8.UTFMax)
+	_ = search.Walk(context.Background(), t.source, query, max(0, cells[0].start-padding), min(t.scanned, cells[len(cells)-1].end+padding), smart, ignore, func(start, end int64) bool {
+		index := sort.Search(len(cells), func(i int) bool { return cells[i].end > start })
+		for i := index; i < len(cells) && cells[i].start < end; i++ {
+			marked[i] = true
 		}
-		for i := index; i < len(cells) && cells[i].start < match[1]; i++ {
-			c := cells[i]
-			if c.width > 0 {
-				result = append(result, Highlight{c.row, c.column, c.width})
-			}
+		return true
+	})
+	var result []Highlight
+	for i, c := range cells {
+		if marked[i] && c.width > 0 {
+			result = append(result, Highlight{c.row, c.column, c.width})
 		}
 	}
 	return result
