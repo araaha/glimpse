@@ -29,6 +29,7 @@ const (
 	SearchBackward     Action = "search-backward"
 	SearchNext         Action = "search-next"
 	SearchPrevious     Action = "search-previous"
+	CommandInput       Action = "command"
 	Insert             Action = "insert"
 	SearchCancel       Action = "search-cancel"
 	Accept             Action = "search-accept"
@@ -81,6 +82,7 @@ func Defaults() []Binding {
 		{SearchBackward, []Key{"?"}},
 		{SearchNext, []Key{"n"}},
 		{SearchPrevious, []Key{"N"}},
+		{CommandInput, []Key{":"}},
 	}
 }
 

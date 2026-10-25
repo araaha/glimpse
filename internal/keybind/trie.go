@@ -119,7 +119,7 @@ func (m *Matcher) resolve(expired bool) []Command {
 		}
 		if action != "" {
 			command := Command{Action: action, Count: m.count}
-			if action == SearchForward || action == SearchBackward || (m.insert && (action == SearchCancel || action == Accept)) {
+			if action == SearchForward || action == SearchBackward || action == CommandInput || (m.insert && (action == SearchCancel || action == Accept)) {
 				command.Remainder = append([]Key(nil), m.pending[lastMatch:]...)
 			}
 			actions = append(actions, command)
