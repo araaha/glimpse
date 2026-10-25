@@ -8,9 +8,14 @@ type Viewport struct {
 	Height      int
 }
 
-// Renderer turns a bounded input window into terminal output. Implementations
-// should render only the viewport and coalesce repeated updates; they should
-// not parse or format an entire logical line on every frame.
+// Frame contains only the text and footer needed for one screen update.
+type Frame struct {
+	Layout Layout
+	Lines  []string
+	Status string
+}
+
+// Renderer draws a bounded frame, independently of how the document is stored.
 type Renderer interface {
-	Render(data []byte, viewport Viewport) error
+	Render(frame Frame) error
 }

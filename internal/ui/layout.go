@@ -1,0 +1,81 @@
+package ui
+
+import "fmt"
+
+// CmdHeight controls which rows are reserved below the document viewport.
+type CmdHeight int
+
+const (
+	// CmdHeightToggle reserves a status row that can be hidden in the view.
+	CmdHeightToggle CmdHeight = -1
+	// CmdHeightStatusOnly starts without a status row; the view action toggles it.
+	CmdHeightStatusOnly CmdHeight = 0
+
+	// CmdHeightWithSearch reserves a status row above a separate search row.
+	CmdHeightWithSearch CmdHeight = 1
+
+	DefaultCmdHeight = CmdHeightStatusOnly
+)
+
+// Validate rejects modes other than -1, 0, and 1.
+func (h CmdHeight) Validate() error {
+	switch h {
+	case CmdHeightToggle, CmdHeightStatusOnly, CmdHeightWithSearch:
+		return nil
+	default:
+		return fmt.Errorf("cmdheight must be -1, 0, or 1 (got %d)", h)
+	}
+}
+
+// Model holds view-local state. The UI event loop owns this state, independently
+// of the goroutine ingesting document bytes.
+type Model struct {
+	cmdHeight     CmdHeight
+	statusVisible bool
+}
+
+// NewModel creates a view. Mode 0 starts with the statusline hidden; modes -1
+// and 1 start with it visible.
+func NewModel(cmdHeight CmdHeight) (*Model, error) {
+	if err := cmdHeight.Validate(); err != nil {
+		return nil, err
+	}
+	return &Model{cmdHeight: cmdHeight, statusVisible: cmdHeight != CmdHeightStatusOnly}, nil
+}
+
+// ToggleStatusline changes visibility in modes -1 and 0. Mode 1 always keeps
+// its status row above the separate search row.
+func (m *Model) ToggleStatusline() {
+	if m.cmdHeight != CmdHeightWithSearch {
+		m.statusVisible = !m.statusVisible
+	}
+}
+
+// Layout separates the document area from footer rows. Row positions are
+// zero-based; -1 means the row is hidden or there is no room for it. Only
+// CmdHeightWithSearch reserves a separate search row; search input and
+// statusline contents are deliberately left to the terminal implementation.
+type Layout struct {
+	Body      Viewport
+	StatusRow int
+	SearchRow int
+}
+
+// Layout computes the available document size after reserving footer rows.
+// With only one terminal row, the search row takes priority over the statusline.
+func (m *Model) Layout(width, height int) Layout {
+	layout := Layout{
+		Body:      Viewport{Width: max(0, width), Height: max(0, height)},
+		StatusRow: -1,
+		SearchRow: -1,
+	}
+	if m.cmdHeight == CmdHeightWithSearch && layout.Body.Height > 0 {
+		layout.Body.Height--
+		layout.SearchRow = layout.Body.Height
+	}
+	if (m.cmdHeight == CmdHeightWithSearch || m.statusVisible) && layout.Body.Height > 0 {
+		layout.Body.Height--
+		layout.StatusRow = layout.Body.Height
+	}
+	return layout
+}
