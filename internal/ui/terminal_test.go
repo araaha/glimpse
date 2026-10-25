@@ -74,6 +74,18 @@ func TestTerminalStyleHasOnlyExplicitSafeAttributes(t *testing.T) {
 	}
 }
 
+func TestSearchFooterDoesNotClipInsideGraphemes(t *testing.T) {
+	input := "/ab👨‍👩‍👧‍👦cd"
+	text, cursor := searchLine(input, len([]rune(input)), 4)
+	if text != "cd" || cursor != 2 {
+		t.Fatalf("grapheme clipping = %q, %d", text, cursor)
+	}
+	keys := KeysFromEvent(tcell.NewEventKey(tcell.KeyRune, "é", tcell.ModNone))
+	if len(keys) != 2 || keys[0] != "e" || keys[1] != "́" {
+		t.Fatalf("composed event dropped keys: %v", keys)
+	}
+}
+
 func TestTerminalRendersAndClearsFooter(t *testing.T) {
 	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 12, Y: 4}), tcell.OptNegotiation(false))
 	if err != nil {

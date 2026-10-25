@@ -2,13 +2,12 @@ package ui
 
 import (
 	"errors"
-	"glimpse/internal/content"
-	"glimpse/internal/pager"
 	"io"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
+
+	"glimpse/internal/content"
+	"glimpse/internal/pager"
 
 	"github.com/clipperhouse/displaywidth"
 )
@@ -19,23 +18,68 @@ type TextSource interface {
 }
 
 // Text incrementally indexes wrapped rows by byte offset, not by copying whole
-// logical lines. An unfinished line is available immediately. Resizing rebuilds
-// the row index; full grapheme-aware reflow and ANSI styling are future work.
+// logical lines. One shared grapheme decoder drives indexing and rendering.
+// The last live cluster is provisional and reflowed when later bytes extend it.
 type Text struct {
-	source                    TextSource
-	starts                    *offsetIndex
-	lineStarts                *offsetIndex
-	rowStyles                 *offsetIndex
-	styleOffsets, styleValues *offsetIndex
-	style                     content.Style
-	cellStarts                []int
-	rendered                  [][]Glyph
-	indexMemory, indexQuota   int64
-	base                      int64
-	scanned                   int64
-	width                     int
-	column                    int
-	struckWidth               int
+	source                       TextSource
+	starts                       *offsetIndex
+	lineStarts                   *offsetIndex
+	rowStyles                    *offsetIndex
+	styleOffsets, styleValues    *offsetIndex
+	style                        content.Style
+	cellStarts                   []int
+	rendered                     [][]Glyph
+	indexMemory, indexQuota      int64
+	base                         int64
+	scanned                      int64
+	width                        int
+	column                       int
+	struckWidth                  int
+	open                         *scanCheckpoint
+	observedEnd                  int64
+	wideAmbiguous, policyChanged bool
+}
+
+type scanCheckpoint struct {
+	scanned        int64
+	style          content.Style
+	column, struck int
+	cells          []int
+	counts         [5]int
+}
+
+func (t *Text) indexes() [5]*offsetIndex {
+	return [5]*offsetIndex{t.starts, t.lineStarts, t.rowStyles, t.styleOffsets, t.styleValues}
+}
+
+func (t *Text) checkpoint() *scanCheckpoint {
+	saved := &scanCheckpoint{scanned: t.scanned, style: t.style, column: t.column, struck: t.struckWidth, cells: append([]int(nil), t.cellStarts...)}
+	for j, index := range t.indexes() {
+		saved.counts[j] = index.count
+	}
+	return saved
+}
+
+func (t *Text) rewind() error {
+	saved := t.open
+	for j, index := range t.indexes() {
+		if err := index.truncate(saved.counts[j]); err != nil {
+			return err
+		}
+	}
+	t.scanned, t.style, t.column, t.struckWidth = saved.scanned, saved.style, saved.column, saved.struck
+	copy(t.cellStarts, saved.cells)
+	t.open = nil
+	return nil
+}
+
+func (t *Text) SetWideAmbiguous(wide bool) {
+	if t.wideAmbiguous != wide {
+		t.wideAmbiguous, t.policyChanged = wide, true
+	}
+}
+func (t *Text) clusterWidth(text string) int {
+	return (displaywidth.Options{EastAsianWidth: t.wideAmbiguous}).String(text)
 }
 
 func NewText(source TextSource) *Text {
@@ -76,6 +120,7 @@ func (t *Text) reset(width int, base int64, initial content.Style) error {
 	}
 	t.width, t.column, t.scanned, t.base = width, 0, base, base
 	t.style = initial
+	t.open, t.policyChanged = nil, false
 	t.struckWidth = 0
 	t.cellStarts = make([]int, width)
 	t.starts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
@@ -115,7 +160,7 @@ func (t *Text) Update(width int, complete bool) error {
 	if source, ok := t.source.(interface{ Start() int64 }); ok {
 		base = source.Start()
 	}
-	if t.width != width || t.base != base {
+	if t.width != width || t.base != base || t.policyChanged {
 		initial := t.styleAt(base)
 		if t.styleOffsets != nil {
 			if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
@@ -138,7 +183,16 @@ func (t *Text) Update(width int, complete bool) error {
 	if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
 		return err
 	}
-	reader := content.NewReader(t.source, t.scanned, t.source.Len(), t.style, complete)
+	end := t.source.Len()
+	if t.open != nil {
+		if end == t.observedEnd && !complete {
+			return nil
+		}
+		if err := t.rewind(); err != nil {
+			return err
+		}
+	}
+	reader := content.NewGraphemeReader(t.source, t.scanned, end, t.style, complete)
 	for {
 		token, err := reader.Next()
 		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) {
@@ -147,8 +201,11 @@ func (t *Text) Update(width int, complete bool) error {
 		if err != nil {
 			return err
 		}
+		if token.Open {
+			t.open = t.checkpoint()
+		}
 		if token.Style != t.style {
-			if err := t.styleOffsets.append(token.End); err != nil {
+			if err := t.styleOffsets.append(token.Start); err != nil {
 				return err
 			}
 			if err := t.styleValues.append(int64(token.Style)); err != nil {
@@ -157,16 +214,27 @@ func (t *Text) Update(width int, complete bool) error {
 		}
 		t.style = token.Style
 		if !token.Hidden {
-			if err := t.addRune(token.Rune, token.Start, int(token.End-token.Start)); err != nil {
+			if err := t.addCluster(token); err != nil {
 				return err
 			}
 		}
+		if token.AfterStyle != t.style {
+			if err := t.styleOffsets.append(token.End); err != nil {
+				return err
+			}
+			if err := t.styleValues.append(int64(token.AfterStyle)); err != nil {
+				return err
+			}
+			t.style = token.AfterStyle
+		}
 		t.scanned = token.End
 	}
+	t.observedEnd = end
 	return nil
 }
 
-func (t *Text) addRune(r rune, offset int64, size int) error {
+func (t *Text) addCluster(cluster content.Cluster) error {
+	r, offset, size := cluster.Rune, cluster.Start, int(cluster.End-cluster.Start)
 	if r == '\n' {
 		if err := t.starts.append(offset + int64(size)); err != nil {
 			return err
@@ -194,8 +262,8 @@ func (t *Text) addRune(r rune, offset int64, size int) error {
 		}
 		return nil
 	}
-	w := runeWidth(r)
-	if r == '_' {
+	w := t.clusterWidth(cluster.Text)
+	if cluster.Text == "_" {
 		w = max(w, t.struckWidth)
 	}
 	t.struckWidth = 0
@@ -217,16 +285,6 @@ func (t *Text) addRune(r rune, offset int64, size int) error {
 	}
 	t.column += w
 	return nil
-}
-
-func runeWidth(r rune) int {
-	if r == '\t' || unicode.IsControl(r) {
-		return 1
-	}
-	if r < utf8.RuneSelf {
-		return 1
-	}
-	return displaywidth.Rune(r)
 }
 
 func (t *Text) RowCount() int {

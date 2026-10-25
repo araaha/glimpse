@@ -102,3 +102,19 @@ func (i *offsetIndex) close() error {
 	i.file = nil
 	return errors.Join(err, removeErr)
 }
+
+func (i *offsetIndex) truncate(count int) error {
+	if count < 0 || count > i.count {
+		return fmt.Errorf("invalid index rewind")
+	}
+	if count >= i.flushed {
+		i.tail = i.tail[:count-i.flushed]
+	} else {
+		if err := i.file.Truncate(int64(count) * 8); err != nil {
+			return err
+		}
+		i.flushed, i.tail = count, i.tail[:0]
+	}
+	i.count, i.pageOffset = count, -1
+	return nil
+}

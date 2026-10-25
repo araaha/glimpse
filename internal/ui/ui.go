@@ -12,14 +12,15 @@ type Viewport struct {
 
 // Frame contains only the text and footer needed for one screen update.
 type Frame struct {
-	Layout       Layout
-	Lines        []string
-	Status       string
-	Search       string
-	SearchActive bool
-	SearchCursor int // Rune index in Search, including the direction prefix.
-	Highlights   []Highlight
-	Styled       [][]Glyph
+	Layout        Layout
+	Lines         []string
+	Status        string
+	Search        string
+	SearchActive  bool
+	SearchCursor  int // Rune index in Search, including the direction prefix.
+	Highlights    []Highlight
+	Styled        [][]Glyph
+	WideAmbiguous bool
 }
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.

@@ -8,13 +8,13 @@ import (
 )
 
 func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, error) {
-	reader := content.NewReader(t.source, start, end, style, true)
+	reader := content.NewGraphemeReader(t.source, start, end, style, true)
 	cells := make([]Glyph, t.width)
 	cursor, extent := 0, 0
 	budget := max(256, t.width*16) - t.width*utf8.UTFMax
 	suffix := max(256, t.width*16)
 	var struck Glyph
-	put := func(text string, width int, token content.Token) {
+	put := func(text string, width int, token content.Cluster) {
 		style := token.Style
 		if struck.Text != "" {
 			switch {
@@ -54,7 +54,7 @@ func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, er
 		if err != nil {
 			return nil, err
 		}
-		if extent >= t.width && (token.Hidden || token.Rune == '\r' || token.Rune == '\b' || runeWidth(token.Rune) == 0) {
+		if extent >= t.width && (token.Hidden || token.Rune == '\r' || token.Rune == '\b' || t.clusterWidth(token.Text) == 0) {
 			suffix -= int(token.End - token.Start)
 			if suffix < 0 {
 				break
@@ -89,20 +89,31 @@ func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, er
 			}
 			continue
 		}
-		width := runeWidth(r)
+		width := t.clusterWidth(token.Text)
 		if width == 0 {
-			if cursor > 0 && utf8.RuneLen(r) <= budget {
+			if cursor > 0 && len(token.Text) <= budget {
 				x := cursor - 1
 				if cells[x].Width < 0 {
 					x = cells[x].Column
 				}
-				cells[x].Text += string(r)
+				cells[x].Text += token.Text
 				cells[x].End = token.End
-				budget -= utf8.RuneLen(r)
+				budget -= len(token.Text)
 			}
 			continue
 		}
-		text := string(r)
+		text := token.Text
+		// Very long combining clusters remain a single grapheme for layout,
+		// while retained terminal text stays bounded by the visible-cell budget.
+		limit := max(utf8.UTFMax, budget+width*utf8.UTFMax)
+		if len(text) > limit {
+			end := limit
+			for end > 0 && !utf8.RuneStart(text[end]) {
+				end--
+			}
+			text = text[:end]
+		}
+		budget -= min(budget, max(0, len(text)-width*utf8.UTFMax))
 		if width > t.width {
 			text, width = "�", 1
 		}

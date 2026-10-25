@@ -80,3 +80,24 @@ func TestRollingTextRebasesAfterEviction(t *testing.T) {
 		}
 	}
 }
+
+func TestIndexRewindAcrossFlushedPages(t *testing.T) {
+	index := newOffsetIndex(1024+4*8, 1<<20)
+	defer index.close()
+	for value := 0; value < 10; value++ {
+		if err := index.append(int64(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := index.truncate(3); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.append(99); err != nil {
+		t.Fatal(err)
+	}
+	for position, want := range []int64{0, 1, 2, 99} {
+		if got := index.at(position); got != want {
+			t.Fatalf("rewound index[%d]=%d, want %d", position, got, want)
+		}
+	}
+}

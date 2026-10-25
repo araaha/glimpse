@@ -4,11 +4,13 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"glimpse/internal/content"
 	"glimpse/internal/keybind"
 
 	"github.com/clipperhouse/displaywidth"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"
 )
@@ -60,7 +62,7 @@ func (t *Terminal) Render(frame Frame) error {
 	}
 	t.screen.HideCursor()
 	if frame.Layout.SearchRow >= 0 {
-		text, cursor := searchLine(frame.Search, frame.SearchCursor, frame.Layout.Body.Width)
+		text, cursor := searchLineWithPolicy(frame.Search, frame.SearchCursor, frame.Layout.Body.Width, frame.WideAmbiguous)
 		t.screen.PutStr(0, frame.Layout.SearchRow, text)
 		if frame.SearchActive && frame.Layout.Body.Width > 0 {
 			t.screen.ShowCursor(cursor, frame.Layout.SearchRow)
@@ -84,26 +86,41 @@ func terminalStyle(style content.Style) tcell.Style {
 // searchLine keeps the editing cursor visible without splitting UTF-8. Controls
 // from history/errors are rendered visibly, never sent as terminal commands.
 func searchLine(text string, cursor, width int) (string, int) {
+	return searchLineWithPolicy(text, cursor, width, false)
+}
+
+func searchLineWithPolicy(text string, cursor, width int, wide bool) (string, int) {
 	if width <= 0 {
 		return "", 0
 	}
 	runes := []rune(text)
 	cursor = min(max(0, cursor), len(runes))
-	parts := make([]string, len(runes))
-	widths := make([]int, len(runes))
+	var parts []string
+	var widths []int
 	column := 0
-	for i, r := range runes {
-		parts[i] = string(r)
-		if unicode.IsControl(r) {
-			parts[i] = strconv.QuoteRune(r)
+	position, clusterCursor := 0, 0
+	iterator := graphemes.FromString(text)
+	for iterator.Next() {
+		part := iterator.Value()
+		var safe strings.Builder
+		for _, r := range part {
+			if unicode.IsControl(r) {
+				safe.WriteString(strconv.QuoteRune(r))
+			} else {
+				safe.WriteRune(r)
+			}
 		}
-		widths[i] = displaywidth.String(parts[i])
-		if i < cursor {
-			column += widths[i]
+		parts = append(parts, safe.String())
+		w := (displaywidth.Options{EastAsianWidth: wide}).String(safe.String())
+		widths = append(widths, w)
+		if position < cursor {
+			column += w
+			clusterCursor++
 		}
+		position += utf8.RuneCountInString(part)
 	}
 	start := 0
-	for start < cursor && column >= width {
+	for start < clusterCursor && column >= width {
 		column -= widths[start]
 		start++
 	}
@@ -114,6 +131,27 @@ func searchLine(text string, cursor, width int) (string, int) {
 		used += widths[i]
 	}
 	return out.String(), min(column, width-1)
+}
+
+// KeysFromEvent accepts composed graphemes delivered in one terminal event,
+// while retaining the existing one-rune configurable binding token convention.
+func KeysFromEvent(ev *tcell.EventKey) []keybind.Key {
+	if !ev.Pressed() {
+		return nil
+	}
+	if ev.Key() == tcell.KeyRune && ev.Modifiers()&(tcell.ModCtrl|tcell.ModAlt|tcell.ModMeta) == 0 && utf8.ValidString(ev.Str()) {
+		var keys []keybind.Key
+		for _, r := range ev.Str() {
+			if key, err := keybind.ParseKey(string(r)); err == nil {
+				keys = append(keys, key)
+			}
+		}
+		return keys
+	}
+	if key, ok := KeyFromEvent(ev); ok {
+		return []keybind.Key{key}
+	}
+	return nil
 }
 
 // KeyFromEvent keeps terminal decoding separate from sequence matching. Shift
