@@ -348,6 +348,7 @@ func TestRunQuitUnblocksStorageQuota(t *testing.T) {
 }
 
 func TestRunQuotaCommandResumesIngestion(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	application, _ := New(Options{ChunkSize: 32, Storage: pager.StorageOptions{MemoryBudget: 128, SpoolQuota: 256, SpoolDir: t.TempDir()}})
 	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 4}), tcell.OptNegotiation(false))
 	if err != nil {
