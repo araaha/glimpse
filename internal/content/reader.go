@@ -50,7 +50,7 @@ func (r *Reader) Next() (Token, error) {
 		return Token{}, err
 	}
 	r.offset += int64(size)
-	if ch == 0x1b || ch == 0x9b || ch == 0x9d || ch == 0x90 || ch == 0x9e || ch == 0x9f {
+	if ch == 0x1b || ch == 0x9b || ch == 0x9d || ch == 0x90 || ch == 0x98 || ch == 0x9e || ch == 0x9f {
 		token, err := r.escape(ch, start)
 		if err != nil {
 			return Token{}, err
@@ -79,6 +79,8 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			introducer = ']'
 		case 0x90:
 			introducer = 'P'
+		case 0x98:
+			introducer = 'X'
 		case 0x9e:
 			introducer = '^'
 		case 0x9f:
@@ -118,7 +120,7 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 				return r.incomplete(start, err)
 			}
 			r.offset++
-			if b == 7 || escape && b == '\\' || c1 && b == 0x9c {
+			if introducer == ']' && b == 7 || escape && b == '\\' || c1 && b == 0x9c {
 				return hidden()
 			}
 			escape = b == 0x1b

@@ -96,6 +96,26 @@ func TestMalformedAndOversizedInputIsSafe(t *testing.T) {
 	}
 }
 
+func TestControlStringTerminatorsAndC1Forms(t *testing.T) {
+	for _, introducer := range []string{"\x1bP", "\x1bX", "\x1b^", "\x1b_", "\u0090", "\u0098", "\u009e", "\u009f"} {
+		input := introducer + "ignored\aLEAK\x1b[31m\u009ctail"
+		got := tokens(t, input)
+		var output strings.Builder
+		for _, token := range got {
+			output.WriteRune(token.Rune)
+			if token.Style != 0 {
+				t.Fatalf("embedded SGR escaped %q", introducer)
+			}
+		}
+		if output.String() != "tail" {
+			t.Fatalf("introducer %q: %q", introducer, output.String())
+		}
+	}
+	if got := tokens(t, "\x1b]ignored\avisible"); len(got) != 7 {
+		t.Fatalf("OSC BEL did not terminate: %+v", got)
+	}
+}
+
 func FuzzSafeContent(f *testing.F) {
 	for _, input := range []string{"hello", "\x1b[31mred", "\x1b]52;secret\a", "界\b_"} {
 		f.Add(input)
