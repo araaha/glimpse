@@ -33,7 +33,7 @@ func (t *Terminal) Render(frame Frame) error {
 		}
 		for _, glyph := range glyphs {
 			if glyph.Column < frame.Layout.Body.Width {
-				t.screen.Put(glyph.Column, row, glyph.Text, terminalStyle(glyph.Style))
+				t.screen.Put(glyph.Column, row, glyph.Text, terminalStyle(glyph.Style, glyph.UnderlineColor))
 			}
 		}
 	}
@@ -72,13 +72,18 @@ func (t *Terminal) Render(frame Frame) error {
 	return nil
 }
 
-func terminalStyle(style content.Style) tcell.Style {
+func terminalStyle(style content.Style, underline ...content.Color) tcell.Style {
 	result := tcell.StyleDefault.Bold(style&content.Bold != 0).Dim(style&content.Dim != 0).Italic(style&content.Italic != 0).Underline(style&content.Underline != 0).Reverse(style&content.Reverse != 0).StrikeThrough(style&content.Strike != 0)
 	if rgb, ok := style.Foreground(); ok {
 		result = result.Foreground(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
 	}
 	if rgb, ok := style.Background(); ok {
 		result = result.Background(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
+	}
+	if len(underline) > 0 {
+		if rgb, ok := underline[0].RGB(); ok {
+			result = result.Underline(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
+		}
 	}
 	return result
 }

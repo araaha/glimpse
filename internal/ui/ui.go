@@ -25,10 +25,11 @@ type Frame struct {
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.
 type Glyph struct {
-	Text          string
-	Column, Width int
-	Style         content.Style
-	Start, End    int64
+	Text           string
+	Column, Width  int
+	Style          content.Style
+	UnderlineColor content.Color
+	Start, End     int64
 }
 
 type Highlight struct{ Row, Column, Width int }

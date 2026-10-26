@@ -76,8 +76,8 @@ func New(options Options) (*App, error) {
 	if options.MetadataQuota == 0 {
 		options.MetadataQuota = 256 << 20
 	}
-	if options.MetadataBudget < 16<<10 || options.MetadataQuota < 40 {
-		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least 40 bytes")
+	if options.MetadataBudget < 16<<10 || options.MetadataQuota < 56 {
+		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least 56 bytes")
 	}
 	if options.AmbiguousWidth == 0 {
 		options.AmbiguousWidth = 1

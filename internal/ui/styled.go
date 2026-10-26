@@ -7,8 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, error) {
-	reader := content.NewGraphemeReader(t.source, start, end, style, true)
+func (t *Text) readStyledRow(start, end int64, style content.Style, underline content.Color) ([]Glyph, error) {
+	reader := content.NewGraphemeReader(t.source, start, end, style, true, underline)
 	cells := make([]Glyph, t.width)
 	cursor, extent := 0, 0
 	budget := max(256, t.width*16) - t.width*utf8.UTFMax
@@ -24,6 +24,7 @@ func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, er
 				style |= content.Underline
 			case text == "_":
 				text, width, style = struck.Text, struck.Width, struck.Style|content.Underline
+				token.UnderlineColor = struck.UnderlineColor
 				token.Start = struck.Start
 			}
 		}
@@ -39,7 +40,7 @@ func (t *Text) readStyledRow(start, end int64, style content.Style) ([]Glyph, er
 				cells[j] = Glyph{Text: " ", Column: j, Width: 1, Start: -1, End: -1}
 			}
 		}
-		cells[cursor] = Glyph{Text: text, Column: cursor, Width: width, Style: style, Start: token.Start, End: token.End}
+		cells[cursor] = Glyph{Text: text, Column: cursor, Width: width, Style: style, UnderlineColor: token.UnderlineColor, Start: token.Start, End: token.End}
 		for x := cursor + 1; x < cursor+width; x++ {
 			cells[x] = Glyph{Column: cursor, Width: -1}
 		}

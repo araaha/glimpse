@@ -21,39 +21,42 @@ type TextSource interface {
 // logical lines. One shared grapheme decoder drives indexing and rendering.
 // The last live cluster is provisional and reflowed when later bytes extend it.
 type Text struct {
-	source                       TextSource
-	starts                       *offsetIndex
-	lineStarts                   *offsetIndex
-	rowStyles                    *offsetIndex
-	styleOffsets, styleValues    *offsetIndex
-	style                        content.Style
-	cellStarts                   []int
-	rendered                     [][]Glyph
-	indexMemory, indexQuota      int64
-	base                         int64
-	scanned                      int64
-	width                        int
-	column                       int
-	struckWidth                  int
-	open                         *scanCheckpoint
-	observedEnd                  int64
-	wideAmbiguous, policyChanged bool
+	source                         TextSource
+	starts                         *offsetIndex
+	lineStarts                     *offsetIndex
+	rowStyles                      *offsetIndex
+	rowUnderlines, styleUnderlines *offsetIndex
+	styleOffsets, styleValues      *offsetIndex
+	style                          content.Style
+	underlineColor                 content.Color
+	cellStarts                     []int
+	rendered                       [][]Glyph
+	indexMemory, indexQuota        int64
+	base                           int64
+	scanned                        int64
+	width                          int
+	column                         int
+	struckWidth                    int
+	open                           *scanCheckpoint
+	observedEnd                    int64
+	wideAmbiguous, policyChanged   bool
 }
 
 type scanCheckpoint struct {
 	scanned        int64
 	style          content.Style
+	underlineColor content.Color
 	column, struck int
 	cells          []int
-	counts         [5]int
+	counts         [7]int
 }
 
-func (t *Text) indexes() [5]*offsetIndex {
-	return [5]*offsetIndex{t.starts, t.lineStarts, t.rowStyles, t.styleOffsets, t.styleValues}
+func (t *Text) indexes() [7]*offsetIndex {
+	return [7]*offsetIndex{t.starts, t.lineStarts, t.rowStyles, t.styleOffsets, t.styleValues, t.rowUnderlines, t.styleUnderlines}
 }
 
 func (t *Text) checkpoint() *scanCheckpoint {
-	saved := &scanCheckpoint{scanned: t.scanned, style: t.style, column: t.column, struck: t.struckWidth, cells: append([]int(nil), t.cellStarts...)}
+	saved := &scanCheckpoint{scanned: t.scanned, style: t.style, underlineColor: t.underlineColor, column: t.column, struck: t.struckWidth, cells: append([]int(nil), t.cellStarts...)}
 	for j, index := range t.indexes() {
 		saved.counts[j] = index.count
 	}
@@ -68,6 +71,7 @@ func (t *Text) rewind() error {
 		}
 	}
 	t.scanned, t.style, t.column, t.struckWidth = saved.scanned, saved.style, saved.column, saved.struck
+	t.underlineColor = saved.underlineColor
 	copy(t.cellStarts, saved.cells)
 	t.open = nil
 	return nil
@@ -88,46 +92,39 @@ func NewText(source TextSource) *Text {
 }
 
 func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
-	if memory < 16<<10 || quota < 40 {
-		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 40 bytes")
+	if memory < 16<<10 || quota < 56 {
+		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 56 bytes")
 	}
 	return &Text{source: source, indexMemory: memory, indexQuota: quota}, nil
 }
 
 func (t *Text) Close() error {
-	var first, second, third, fourth, fifth error
-	if t.starts != nil {
-		first = t.starts.close()
+	var result error
+	for _, index := range t.indexes() {
+		if index != nil {
+			result = errors.Join(result, index.close())
+		}
 	}
-	if t.lineStarts != nil {
-		second = t.lineStarts.close()
-	}
-	if t.rowStyles != nil {
-		third = t.rowStyles.close()
-	}
-	if t.styleOffsets != nil {
-		fourth = t.styleOffsets.close()
-	}
-	if t.styleValues != nil {
-		fifth = t.styleValues.close()
-	}
-	return errors.Join(first, second, third, fourth, fifth)
+	return result
 }
 
-func (t *Text) reset(width int, base int64, initial content.Style) error {
+func (t *Text) reset(width int, base int64, initial content.Style, underline content.Color) error {
 	if err := t.Close(); err != nil {
 		return err
 	}
 	t.width, t.column, t.scanned, t.base = width, 0, base, base
 	t.style = initial
+	t.underlineColor = underline
 	t.open, t.policyChanged = nil, false
 	t.struckWidth = 0
 	t.cellStarts = make([]int, width)
-	t.starts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
-	t.lineStarts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
-	t.rowStyles = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
-	t.styleOffsets = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
-	t.styleValues = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.starts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.lineStarts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.rowStyles = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.styleOffsets = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.styleValues = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.rowUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.styleUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
 	if err := t.starts.append(base); err != nil {
 		return err
 	}
@@ -140,15 +137,38 @@ func (t *Text) reset(width int, base int64, initial content.Style) error {
 	if err := t.styleValues.append(int64(initial)); err != nil {
 		return err
 	}
+	if err := t.rowUnderlines.append(int64(underline)); err != nil {
+		return err
+	}
+	if err := t.styleUnderlines.append(int64(underline)); err != nil {
+		return err
+	}
 	return t.lineStarts.append(base)
 }
 
-func (t *Text) styleAt(offset int64) content.Style {
+func (t *Text) styleAt(offset int64) (content.Style, content.Color) {
 	if t.styleOffsets == nil {
-		return 0
+		return 0, 0
 	}
 	index := max(0, sort.Search(t.styleOffsets.count, func(i int) bool { return t.styleOffsets.at(i) > offset })-1)
-	return content.Style(t.styleValues.at(index))
+	return content.Style(t.styleValues.at(index)), content.Color(t.styleUnderlines.at(index))
+}
+
+func (t *Text) recordStyle(offset int64, style content.Style, underline content.Color) error {
+	if style == t.style && underline == t.underlineColor {
+		return nil
+	}
+	if err := t.styleOffsets.append(offset); err != nil {
+		return err
+	}
+	if err := t.styleValues.append(int64(style)); err != nil {
+		return err
+	}
+	if err := t.styleUnderlines.append(int64(underline)); err != nil {
+		return err
+	}
+	t.style, t.underlineColor = style, underline
+	return nil
 }
 
 // Update indexes only newly available bytes unless the terminal width changed.
@@ -161,27 +181,20 @@ func (t *Text) Update(width int, complete bool) error {
 		base = source.Start()
 	}
 	if t.width != width || t.base != base || t.policyChanged {
-		initial := t.styleAt(base)
+		initial, underline := t.styleAt(base)
 		if t.styleOffsets != nil {
-			if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
+			if err := errors.Join(t.styleOffsets.err, t.styleValues.err, t.styleUnderlines.err); err != nil {
 				return err
 			}
 		}
-		if err := t.reset(width, base, initial); err != nil {
+		if err := t.reset(width, base, initial, underline); err != nil {
 			return err
 		}
 	}
-	if t.starts.err != nil {
-		return t.starts.err
-	}
-	if t.lineStarts.err != nil {
-		return t.lineStarts.err
-	}
-	if t.rowStyles.err != nil {
-		return t.rowStyles.err
-	}
-	if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
-		return err
+	for _, index := range t.indexes() {
+		if index.err != nil {
+			return index.err
+		}
 	}
 	end := t.source.Len()
 	if t.open != nil {
@@ -192,7 +205,7 @@ func (t *Text) Update(width int, complete bool) error {
 			return err
 		}
 	}
-	reader := content.NewGraphemeReader(t.source, t.scanned, end, t.style, complete)
+	reader := content.NewGraphemeReader(t.source, t.scanned, end, t.style, complete, t.underlineColor)
 	for {
 		token, err := reader.Next()
 		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) {
@@ -204,28 +217,16 @@ func (t *Text) Update(width int, complete bool) error {
 		if token.Open {
 			t.open = t.checkpoint()
 		}
-		if token.Style != t.style {
-			if err := t.styleOffsets.append(token.Start); err != nil {
-				return err
-			}
-			if err := t.styleValues.append(int64(token.Style)); err != nil {
-				return err
-			}
+		if err := t.recordStyle(token.Start, token.Style, token.UnderlineColor); err != nil {
+			return err
 		}
-		t.style = token.Style
 		if !token.Hidden {
 			if err := t.addCluster(token); err != nil {
 				return err
 			}
 		}
-		if token.AfterStyle != t.style {
-			if err := t.styleOffsets.append(token.End); err != nil {
-				return err
-			}
-			if err := t.styleValues.append(int64(token.AfterStyle)); err != nil {
-				return err
-			}
-			t.style = token.AfterStyle
+		if err := t.recordStyle(token.End, token.AfterStyle, token.AfterUnderlineColor); err != nil {
+			return err
 		}
 		t.scanned = token.End
 	}
@@ -243,6 +244,9 @@ func (t *Text) addCluster(cluster content.Cluster) error {
 			return err
 		}
 		if err := t.rowStyles.append(int64(t.style)); err != nil {
+			return err
+		}
+		if err := t.rowUnderlines.append(int64(t.underlineColor)); err != nil {
 			return err
 		}
 		t.column = 0
@@ -275,6 +279,9 @@ func (t *Text) addCluster(cluster content.Cluster) error {
 			return err
 		}
 		if err := t.rowStyles.append(int64(t.style)); err != nil {
+			return err
+		}
+		if err := t.rowUnderlines.append(int64(t.underlineColor)); err != nil {
 			return err
 		}
 		t.column = 0
@@ -349,10 +356,11 @@ func (t *Text) Lines(top, height int) ([]string, error) {
 			return nil, t.starts.err
 		}
 		style := content.Style(t.rowStyles.at(row))
-		if t.rowStyles.err != nil {
-			return nil, t.rowStyles.err
+		underline := content.Color(t.rowUnderlines.at(row))
+		if err := errors.Join(t.rowStyles.err, t.rowUnderlines.err); err != nil {
+			return nil, err
 		}
-		glyphs, err := t.readStyledRow(start, end, style)
+		glyphs, err := t.readStyledRow(start, end, style, underline)
 		if err != nil {
 			return nil, err
 		}
