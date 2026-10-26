@@ -107,7 +107,7 @@ func sgr(style Style, parameters string) Style {
 		case value == 49:
 			style &^= colorMask << 25
 		case value >= 30 && value <= 37:
-			style = style.color(palette(value-30), false)
+			style = style.color(palette(value-30+8), false)
 		case value >= 40 && value <= 47:
 			style = style.color(palette(value-40), true)
 		case value >= 90 && value <= 97:
