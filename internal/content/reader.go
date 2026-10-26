@@ -12,25 +12,31 @@ import (
 var ErrIncomplete = errors.New("incomplete content token")
 
 type Token struct {
-	Rune       rune
-	Raw        rune
-	Start, End int64
-	Style      Style
-	Hidden     bool
+	Rune           rune
+	Raw            rune
+	Start, End     int64
+	Style          Style
+	Hidden         bool
+	UnderlineColor Color
 }
 
 // Reader limits control sequences to 4096 bytes. Malformed or oversized input
 // falls back to visible replacement text; it can never reach the real terminal
 // as an escape. Incomplete UTF-8/escapes wait only while the source is still live.
 type Reader struct {
-	reader   *bufio.Reader
-	offset   int64
-	style    Style
-	complete bool
+	reader         *bufio.Reader
+	offset         int64
+	style          Style
+	complete       bool
+	underlineColor Color
 }
 
-func NewReader(source io.ReaderAt, start, end int64, style Style, complete bool) *Reader {
-	return &Reader{reader: bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), 4096), offset: start, style: style, complete: complete}
+func NewReader(source io.ReaderAt, start, end int64, style Style, complete bool, underline ...Color) *Reader {
+	r := &Reader{reader: bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), 4096), offset: start, style: style, complete: complete}
+	if len(underline) > 0 {
+		r.underlineColor = underline[0]
+	}
+	return r
 }
 
 func (r *Reader) Next() (Token, error) {
@@ -61,7 +67,7 @@ func (r *Reader) Next() (Token, error) {
 	if unicode.IsControl(ch) && ch != '\n' && ch != '\r' && ch != '\b' && ch != '\t' {
 		ch = utf8.RuneError
 	}
-	return Token{Rune: ch, Raw: raw, Start: start, End: r.offset, Style: r.style}, nil
+	return Token{Rune: ch, Raw: raw, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 }
 
 func (r *Reader) escape(ch rune, start int64) (Token, error) {
@@ -87,7 +93,9 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			introducer = '_'
 		}
 	}
-	hidden := func() (Token, error) { return Token{Start: start, End: r.offset, Style: r.style, Hidden: true}, nil }
+	hidden := func() (Token, error) {
+		return Token{Start: start, End: r.offset, Style: r.style, Hidden: true, UnderlineColor: r.underlineColor}, nil
+	}
 	if introducer == '[' {
 		var parameters strings.Builder
 		for count := 0; count < 4096; count++ {
@@ -98,18 +106,18 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			r.offset++
 			if b >= 0x40 && b <= 0x7e {
 				if b == 'm' && parameters.Len() <= 512 {
-					r.style = sgr(r.style, parameters.String())
+					r.style, r.underlineColor = sgr(r.style, r.underlineColor, parameters.String())
 				}
 				return hidden()
 			}
 			if b < 0x20 || b > 0x3f {
-				return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style}, nil
+				return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 			}
 			if parameters.Len() < 513 {
 				parameters.WriteByte(b)
 			}
 		}
-		return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style}, nil
+		return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 	}
 	if introducer == ']' || introducer == 'P' || introducer == '^' || introducer == '_' || introducer == 'X' {
 		escape := false
@@ -126,7 +134,7 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			escape = b == 0x1b
 			c1 = b == 0xc2
 		}
-		return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style}, nil
+		return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 	}
 	if introducer >= 0x20 && introducer <= 0x2f {
 		for range 16 {
@@ -150,5 +158,5 @@ func (r *Reader) incomplete(start int64, err error) (Token, error) {
 	if !r.complete {
 		return Token{}, ErrIncomplete
 	}
-	return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style}, nil
+	return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 }

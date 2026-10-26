@@ -17,9 +17,10 @@ const MaxClusterBytes = 64 << 10
 
 type Cluster struct {
 	Token
-	Text       string
-	AfterStyle Style
-	Open       bool // Last live cluster may grow when more input arrives.
+	Text                string
+	AfterStyle          Style
+	AfterUnderlineColor Color
+	Open                bool // Last live cluster may grow when more input arrives.
 }
 
 // GraphemeReader batches decoded tokens, then uses the Unicode UAX #29 segmenter
@@ -33,6 +34,7 @@ type GraphemeReader struct {
 	encoded, consumed                       int64
 	lastEnd, emittedEnd                     int64
 	lastStyle                               Style
+	lastUnderlineColor                      Color
 	eof, complete                           bool
 	renderWidth, renderColumn, renderExtent int
 	renderWide, checkedFull, full           bool
@@ -46,8 +48,12 @@ func (r *GraphemeReader) SetRenderState(width, column, extent int, wide bool) {
 	r.checkedFull = false
 }
 
-func NewGraphemeReader(source io.ReaderAt, start, end int64, style Style, complete bool) *GraphemeReader {
-	return &GraphemeReader{reader: NewReader(source, start, end, style, complete), complete: complete, lastEnd: start, emittedEnd: start, lastStyle: style}
+func NewGraphemeReader(source io.ReaderAt, start, end int64, style Style, complete bool, underline ...Color) *GraphemeReader {
+	r := &GraphemeReader{reader: NewReader(source, start, end, style, complete, underline...), complete: complete, lastEnd: start, emittedEnd: start, lastStyle: style}
+	if len(underline) > 0 {
+		r.lastUnderlineColor = underline[0]
+	}
+	return r
 }
 
 func (r *GraphemeReader) fill(target int) error {
@@ -61,6 +67,7 @@ func (r *GraphemeReader) fill(target int) error {
 			return err
 		}
 		r.lastEnd, r.lastStyle = token.End, token.Style
+		r.lastUnderlineColor = token.UnderlineColor
 		if token.Hidden {
 			if r.renderWidth > 0 {
 				if !r.checkedFull {
@@ -93,9 +100,9 @@ func (r *GraphemeReader) Next() (Cluster, error) {
 	}
 	if len(r.data) == 0 {
 		if r.lastEnd > r.emittedEnd {
-			token := Token{Start: r.emittedEnd, End: r.lastEnd, Style: r.lastStyle, Hidden: true}
+			token := Token{Start: r.emittedEnd, End: r.lastEnd, Style: r.lastStyle, Hidden: true, UnderlineColor: r.lastUnderlineColor}
 			r.emittedEnd = r.lastEnd
-			return Cluster{Token: token, AfterStyle: r.lastStyle}, nil
+			return Cluster{Token: token, AfterStyle: r.lastStyle, AfterUnderlineColor: r.lastUnderlineColor}, nil
 		}
 		return Cluster{}, io.EOF
 	}
@@ -129,11 +136,13 @@ func (r *GraphemeReader) Next() (Cluster, error) {
 	token := r.tokens[0]
 	token.End = r.tokens[count-1].End
 	after := r.tokens[count-1].Style
+	afterUnderline := r.tokens[count-1].UnderlineColor
 	last := count == len(r.tokens) && r.eof
 	if last && !control {
 		token.End, after = r.lastEnd, r.lastStyle
+		afterUnderline = r.lastUnderlineColor
 	}
-	cluster := Cluster{Token: token, Text: string(r.data[:advance]), AfterStyle: after, Open: last && !r.complete && !control}
+	cluster := Cluster{Token: token, Text: string(r.data[:advance]), AfterStyle: after, AfterUnderlineColor: afterUnderline, Open: last && !r.complete && !control}
 	r.data, r.tokens, r.ends = r.data[advance:], r.tokens[count:], r.ends[count:]
 	r.consumed, r.emittedEnd = end, token.End
 	return cluster, nil
