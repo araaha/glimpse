@@ -46,6 +46,19 @@ func TestCmdHeightConfiguration(t *testing.T) {
 		{name: "rebind Ctrl-C and Escape", config: "[keybinds]\nup = ['<C-c>']\ntop = ['<Esc>']\n", wantErr: noTerminal},
 		{name: "binding conflict", config: "[keybinds]\ntop = ['x']\nbottom = ['x']\n", wantErr: "bound to both"},
 		{name: "invalid chunk size", args: []string{"--chunk-size=0"}, wantErr: "chunk-size must be a positive integer"},
+		{name: "search bindings", config: "[keybinds]\nsearch-word-left = ['<M-h>']\nsearch-accept = ['<C-s>']\n", wantErr: noTerminal},
+		{name: "invalid search action", config: "[keybinds]\nsearch-unknown = ['q']\n", wantErr: "unknown keybind action"},
+		{name: "invalid smart case", config: "[search]\nsmart-case = 'bad'\n", wantErr: "parse search.smart-case"},
+		{name: "invalid ignore case", config: "[search]\nignore-case = 'bad'\n", wantErr: "parse search.ignore-case"},
+		{name: "invalid case sensitive", config: "[search]\ncase-sensitive = 'bad'\n", wantErr: "parse search.case-sensitive"},
+		{name: "storage flags", args: []string{"--memory-budget=64", "--spool-quota=128", "--metadata-budget=16384", "--retention=rolling"}, wantErr: noTerminal},
+		{name: "storage TOML", config: "[storage]\nmemory-budget = 64\nspool-quota = 128\nretention = 'rolling'\n", wantErr: noTerminal},
+		{name: "invalid retention", args: []string{"--retention=drop"}, wantErr: "retention must be lossless or rolling"},
+		{name: "invalid memory budget", args: []string{"--memory-budget=0"}, wantErr: "positive integer byte count"},
+		{name: "invalid metadata budget", args: []string{"--metadata-budget=64"}, wantErr: "metadata-budget must be at least"},
+		{name: "ambiguous width flag", args: []string{"--ambiguous-width=2"}, wantErr: noTerminal},
+		{name: "ambiguous width TOML", config: "[display]\nambiguous-width = 2\n", wantErr: noTerminal},
+		{name: "invalid ambiguous width", args: []string{"--ambiguous-width=3"}, wantErr: "ambiguous-width must be 1 or 2"},
 		{name: "too many files", args: []string{"one", "two"}, wantErr: "at most 1"},
 	}
 	for _, tt := range tests {
@@ -77,6 +90,60 @@ func TestCmdHeightConfiguration(t *testing.T) {
 	}
 }
 
+func TestSearchCaseConfiguration(t *testing.T) {
+	for _, tt := range []struct {
+		name, config, env, ignoreEnv string
+		args                         []string
+		want, wantIgnore             bool
+	}{
+		{name: "default"},
+		{name: "flag", args: []string{"--smart-case"}, want: true},
+		{name: "TOML", config: "[search]\nsmart-case = true\n", want: true},
+		{name: "environment", env: "true", want: true},
+		{name: "environment overrides TOML", config: "[search]\nsmart-case = true\n", env: "false"},
+		{name: "flag overrides environment", env: "true", args: []string{"--smart-case=false"}},
+		{name: "ignore-case flag", args: []string{"--ignore-case"}, wantIgnore: true},
+		{name: "ignore-case TOML", config: "[search]\nignore-case = true\n", wantIgnore: true},
+		{name: "ignore-case environment", ignoreEnv: "true", wantIgnore: true},
+		{name: "case-sensitive flag overrides smart-case TOML", config: "[search]\nsmart-case = true\n", args: []string{"--case-sensitive"}},
+		{name: "ignore-case flag overrides smart-case TOML", config: "[search]\nsmart-case = true\n", args: []string{"--ignore-case"}, wantIgnore: true},
+		{name: "smart-case flag overrides case-sensitive TOML", config: "[search]\ncase-sensitive = true\n", args: []string{"--smart-case"}, want: true},
+		{name: "ignore-case env overrides smart-case TOML", config: "[search]\nsmart-case = true\n", ignoreEnv: "true", wantIgnore: true},
+		{name: "smart-case wins within tier", config: "[search]\nsmart-case = true\nignore-case = true\n", want: true},
+		{name: "case-sensitive wins within tier", config: "[search]\nsmart-case = true\nignore-case = true\ncase-sensitive = true\n"},
+		{name: "explicit false reveals configured fallback", config: "[search]\nsmart-case = true\nignore-case = true\n", args: []string{"--smart-case=false"}, wantIgnore: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", dir)
+			t.Setenv("GLIMPSE_SEARCH_SMART_CASE", tt.env)
+			t.Setenv("GLIMPSE_SEARCH_IGNORE_CASE", tt.ignoreEnv)
+			t.Setenv("GLIMPSE_SEARCH_CASE_SENSITIVE", "")
+			path := filepath.Join(dir, "test.toml")
+			if err := os.WriteFile(path, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			called := false
+			root := newRoot(func(_ context.Context, application *app.App, input io.ReadCloser, _ string) error {
+				defer input.Close()
+				called = true
+				if application.SmartCase != tt.want || application.IgnoreCase != tt.wantIgnore {
+					t.Fatalf("SmartCase, IgnoreCase = %v, %v; want %v, %v", application.SmartCase, application.IgnoreCase, tt.want, tt.wantIgnore)
+				}
+				return nil
+			}, nil)
+			root.SetIn(strings.NewReader(""))
+			root.SetArgs(append([]string{"--config", path}, tt.args...))
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !called {
+				t.Fatal("viewer not called")
+			}
+		})
+	}
+}
+
 func TestRootLoadsFileAndKeySequence(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -103,7 +170,7 @@ func TestRootLoadsFileAndKeySequence(t *testing.T) {
 		if got := application.Keys.Feed("t"); len(got) != 0 {
 			t.Fatal("first key fired the action")
 		}
-		if got := application.Keys.Feed("t"); len(got) != 1 || got[0] != keybind.Top {
+		if got := application.Keys.Feed("t"); len(got) != 1 || got[0].Action != keybind.Top {
 			t.Fatalf("configured sequence = %v", got)
 		}
 		return nil

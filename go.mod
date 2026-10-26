@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/clipperhouse/displaywidth v0.11.0
+	github.com/clipperhouse/uax29/v2 v2.7.0
 	github.com/gdamore/tcell/v3 v3.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect

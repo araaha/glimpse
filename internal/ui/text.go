@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"bufio"
 	"errors"
 	"io"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
+
+	"glimpse/internal/content"
+	"glimpse/internal/pager"
 
 	"github.com/clipperhouse/displaywidth"
 )
@@ -18,88 +18,288 @@ type TextSource interface {
 }
 
 // Text incrementally indexes wrapped rows by byte offset, not by copying whole
-// logical lines. An unfinished line is available immediately. Resizing rebuilds
-// the row index; full grapheme-aware reflow and ANSI styling are future work.
+// logical lines. One shared grapheme decoder drives indexing and rendering.
+// The last live cluster is provisional and reflowed when later bytes extend it.
 type Text struct {
-	source  TextSource
-	starts  []int64
-	scanned int64
-	width   int
-	column  int
-	buffer  [64 * 1024]byte
+	source                       TextSource
+	starts                       *offsetIndex
+	lineStarts                   *offsetIndex
+	rowStyles                    *offsetIndex
+	styleOffsets, styleValues    *offsetIndex
+	style                        content.Style
+	cellStarts                   []int
+	rendered                     [][]Glyph
+	indexMemory, indexQuota      int64
+	base                         int64
+	scanned                      int64
+	width                        int
+	column                       int
+	struckWidth                  int
+	open                         *scanCheckpoint
+	observedEnd                  int64
+	wideAmbiguous, policyChanged bool
 }
 
-func NewText(source TextSource) *Text { return &Text{source: source} }
+type scanCheckpoint struct {
+	scanned        int64
+	style          content.Style
+	column, struck int
+	cells          []int
+	counts         [5]int
+}
+
+func (t *Text) indexes() [5]*offsetIndex {
+	return [5]*offsetIndex{t.starts, t.lineStarts, t.rowStyles, t.styleOffsets, t.styleValues}
+}
+
+func (t *Text) checkpoint() *scanCheckpoint {
+	saved := &scanCheckpoint{scanned: t.scanned, style: t.style, column: t.column, struck: t.struckWidth, cells: append([]int(nil), t.cellStarts...)}
+	for j, index := range t.indexes() {
+		saved.counts[j] = index.count
+	}
+	return saved
+}
+
+func (t *Text) rewind() error {
+	saved := t.open
+	for j, index := range t.indexes() {
+		if err := index.truncate(saved.counts[j]); err != nil {
+			return err
+		}
+	}
+	t.scanned, t.style, t.column, t.struckWidth = saved.scanned, saved.style, saved.column, saved.struck
+	copy(t.cellStarts, saved.cells)
+	t.open = nil
+	return nil
+}
+
+func (t *Text) SetWideAmbiguous(wide bool) {
+	if t.wideAmbiguous != wide {
+		t.wideAmbiguous, t.policyChanged = wide, true
+	}
+}
+func (t *Text) clusterWidth(text string) int {
+	return (displaywidth.Options{EastAsianWidth: t.wideAmbiguous}).String(text)
+}
+
+func NewText(source TextSource) *Text {
+	text, _ := NewTextWithLimits(source, 8<<20, 256<<20)
+	return text
+}
+
+func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
+	if memory < 16<<10 || quota < 40 {
+		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 40 bytes")
+	}
+	return &Text{source: source, indexMemory: memory, indexQuota: quota}, nil
+}
+
+func (t *Text) Close() error {
+	var first, second, third, fourth, fifth error
+	if t.starts != nil {
+		first = t.starts.close()
+	}
+	if t.lineStarts != nil {
+		second = t.lineStarts.close()
+	}
+	if t.rowStyles != nil {
+		third = t.rowStyles.close()
+	}
+	if t.styleOffsets != nil {
+		fourth = t.styleOffsets.close()
+	}
+	if t.styleValues != nil {
+		fifth = t.styleValues.close()
+	}
+	return errors.Join(first, second, third, fourth, fifth)
+}
+
+func (t *Text) reset(width int, base int64, initial content.Style) error {
+	if err := t.Close(); err != nil {
+		return err
+	}
+	t.width, t.column, t.scanned, t.base = width, 0, base, base
+	t.style = initial
+	t.open, t.policyChanged = nil, false
+	t.struckWidth = 0
+	t.cellStarts = make([]int, width)
+	t.starts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.lineStarts = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.rowStyles = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.styleOffsets = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	t.styleValues = newOffsetIndex(t.indexMemory/5, t.indexQuota/5)
+	if err := t.starts.append(base); err != nil {
+		return err
+	}
+	if err := t.rowStyles.append(int64(initial)); err != nil {
+		return err
+	}
+	if err := t.styleOffsets.append(base); err != nil {
+		return err
+	}
+	if err := t.styleValues.append(int64(initial)); err != nil {
+		return err
+	}
+	return t.lineStarts.append(base)
+}
+
+func (t *Text) styleAt(offset int64) content.Style {
+	if t.styleOffsets == nil {
+		return 0
+	}
+	index := max(0, sort.Search(t.styleOffsets.count, func(i int) bool { return t.styleOffsets.at(i) > offset })-1)
+	return content.Style(t.styleValues.at(index))
+}
 
 // Update indexes only newly available bytes unless the terminal width changed.
 // complete allows an incomplete UTF-8 suffix at EOF to be shown as replacement
 // characters instead of waiting for further input.
 func (t *Text) Update(width int, complete bool) error {
 	width = max(1, width)
-	if t.width != width {
-		t.width, t.column, t.scanned = width, 0, 0
-		t.starts = []int64{0}
+	base := int64(0)
+	if source, ok := t.source.(interface{ Start() int64 }); ok {
+		base = source.Start()
 	}
-	end := t.source.Len()
-	for t.scanned < end {
-		want := int(min(int64(len(t.buffer)), end-t.scanned))
-		n, err := t.source.ReadAt(t.buffer[:want], t.scanned)
-		if err != nil && !errors.Is(err, io.EOF) {
+	if t.width != width || t.base != base || t.policyChanged {
+		initial := t.styleAt(base)
+		if t.styleOffsets != nil {
+			if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
+				return err
+			}
+		}
+		if err := t.reset(width, base, initial); err != nil {
 			return err
 		}
-		used := 0
-		for used < n {
-			r, size := rune(t.buffer[used]), 1
-			if r >= utf8.RuneSelf {
-				if !utf8.FullRune(t.buffer[used:n]) && (!complete || t.scanned+int64(n) < end) {
-					break
-				}
-				r, size = utf8.DecodeRune(t.buffer[used:n])
-			}
-			t.addRune(r, t.scanned+int64(used), size)
-			used += size
+	}
+	if t.starts.err != nil {
+		return t.starts.err
+	}
+	if t.lineStarts.err != nil {
+		return t.lineStarts.err
+	}
+	if t.rowStyles.err != nil {
+		return t.rowStyles.err
+	}
+	if err := errors.Join(t.styleOffsets.err, t.styleValues.err); err != nil {
+		return err
+	}
+	end := t.source.Len()
+	if t.open != nil {
+		if end == t.observedEnd && !complete {
+			return nil
 		}
-		t.scanned += int64(used)
-		if used == 0 {
-			break
+		if err := t.rewind(); err != nil {
+			return err
 		}
 	}
+	reader := content.NewGraphemeReader(t.source, t.scanned, end, t.style, complete)
+	for {
+		token, err := reader.Next()
+		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if token.Open {
+			t.open = t.checkpoint()
+		}
+		if token.Style != t.style {
+			if err := t.styleOffsets.append(token.Start); err != nil {
+				return err
+			}
+			if err := t.styleValues.append(int64(token.Style)); err != nil {
+				return err
+			}
+		}
+		t.style = token.Style
+		if !token.Hidden {
+			if err := t.addCluster(token); err != nil {
+				return err
+			}
+		}
+		if token.AfterStyle != t.style {
+			if err := t.styleOffsets.append(token.End); err != nil {
+				return err
+			}
+			if err := t.styleValues.append(int64(token.AfterStyle)); err != nil {
+				return err
+			}
+			t.style = token.AfterStyle
+		}
+		t.scanned = token.End
+	}
+	t.observedEnd = end
 	return nil
 }
 
-func (t *Text) addRune(r rune, offset int64, size int) {
+func (t *Text) addCluster(cluster content.Cluster) error {
+	r, offset, size := cluster.Rune, cluster.Start, int(cluster.End-cluster.Start)
 	if r == '\n' {
-		t.starts = append(t.starts, offset+int64(size))
+		if err := t.starts.append(offset + int64(size)); err != nil {
+			return err
+		}
+		if err := t.lineStarts.append(offset + int64(size)); err != nil {
+			return err
+		}
+		if err := t.rowStyles.append(int64(t.style)); err != nil {
+			return err
+		}
 		t.column = 0
-		return
+		t.struckWidth = 0
+		return nil
 	}
 	if r == '\r' {
-		return // Treat CRLF as one line ending.
+		t.column = 0
+		t.struckWidth = 0
+		return nil // CR rewinds the current display row; it cannot cross a wrap.
 	}
-	w := runeWidth(r)
+	if r == '\b' {
+		if t.column > 0 {
+			previous := t.column
+			t.column = t.cellStarts[t.column-1]
+			t.struckWidth = previous - t.column
+		}
+		return nil
+	}
+	w := t.clusterWidth(cluster.Text)
+	if r == '\t' {
+		w = 1
+	} // A tab at the right edge must first create a new row.
+	if cluster.Text == "_" {
+		w = max(w, t.struckWidth)
+	}
+	t.struckWidth = 0
 	if w > 0 && t.column > 0 && t.column+w > t.width {
-		t.starts = append(t.starts, offset)
+		if err := t.starts.append(offset); err != nil {
+			return err
+		}
+		if err := t.rowStyles.append(int64(t.style)); err != nil {
+			return err
+		}
 		t.column = 0
 	}
 	if r == '\t' {
 		w = min(8-t.column%8, t.width-t.column)
 	}
-	t.column += min(w, t.width)
-}
-
-func runeWidth(r rune) int {
-	if r == '\t' || unicode.IsControl(r) {
-		return 1
+	w = min(w, t.width)
+	for i := t.column; i < min(t.width, t.column+w); i++ {
+		if r == '\t' {
+			t.cellStarts[i] = i
+		} else {
+			t.cellStarts[i] = t.column
+		}
 	}
-	if r < utf8.RuneSelf {
-		return 1
-	}
-	return displaywidth.Rune(r)
+	t.column += w
+	return nil
 }
 
 func (t *Text) RowCount() int {
-	count := len(t.starts)
-	if count > 0 && t.starts[count-1] == t.scanned {
+	if t.starts == nil {
+		return 0
+	}
+	count := t.starts.count
+	if count > 0 && t.starts.at(count-1) == t.scanned {
 		count-- // A final newline does not create an extra empty display row.
 	}
 	return count
@@ -109,96 +309,61 @@ func (t *Text) Offset(row int) int64 {
 	if t.RowCount() == 0 {
 		return 0
 	}
-	return t.starts[min(max(0, row), t.RowCount()-1)]
+	return t.starts.at(min(max(0, row), t.RowCount()-1))
 }
 
 // RowAt preserves the approximate byte position when the screen is resized.
 func (t *Text) RowAt(offset int64) int {
-	return max(0, sort.Search(len(t.starts), func(i int) bool { return t.starts[i] > offset })-1)
+	if t.starts == nil {
+		return 0
+	}
+	return max(0, sort.Search(t.starts.count, func(i int) bool { return t.starts.at(i) > offset })-1)
+}
+
+// LineRow returns the first wrapped row of a one-based logical line. Requests
+// beyond the available input clamp to the last line, ignoring a final newline.
+func (t *Text) LineRow(line int) int {
+	if t.lineStarts == nil {
+		return 0
+	}
+	count := t.lineStarts.count
+	if count > 0 && t.lineStarts.at(count-1) == t.scanned {
+		count--
+	}
+	if count == 0 {
+		return 0
+	}
+	return t.RowAt(t.lineStarts.at(min(max(1, line), count) - 1))
 }
 
 func (t *Text) Lines(top, height int) ([]string, error) {
 	var lines []string
-	var reader *bufio.Reader
+	t.rendered = nil
 	for row := max(0, top); row < t.RowCount() && len(lines) < height; row++ {
 		end := t.scanned
-		if row+1 < len(t.starts) {
-			end = t.starts[row+1]
+		if row+1 < t.starts.count {
+			end = t.starts.at(row + 1)
 		}
-		section := io.NewSectionReader(t.source, t.starts[row], end-t.starts[row])
-		if reader == nil {
-			reader = bufio.NewReaderSize(section, 4096)
-		} else {
-			reader.Reset(section)
+		start := t.starts.at(row)
+		if t.starts.err != nil {
+			return nil, t.starts.err
 		}
-		line, err := t.readLine(reader)
+		style := content.Style(t.rowStyles.at(row))
+		if t.rowStyles.err != nil {
+			return nil, t.rowStyles.err
+		}
+		glyphs, err := t.readStyledRow(start, end, style)
 		if err != nil {
 			return nil, err
 		}
-		lines = append(lines, line)
+		var line strings.Builder
+		for _, glyph := range glyphs {
+			line.WriteString(glyph.Text)
+		}
+		lines = append(lines, line.String())
+		t.rendered = append(t.rendered, glyphs)
 	}
 	return lines, nil
 }
 
-func (t *Text) readLine(reader *bufio.Reader) (string, error) {
-	var line strings.Builder
-	column := 0
-	maxBytes := max(256, t.width*16)
-	// Limit retained zero-width text, not bytes scanned before visible cells.
-	// Reserve enough space for every remaining cell even after a long span of
-	// combining marks. Ignored carriage returns consume no output budget.
-	zeroWidthBudget := maxBytes - t.width*utf8.UTFMax
-	suffixBudget := maxBytes
-	for {
-		r, size, err := reader.ReadRune()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		if r == '\n' {
-			break
-		}
-		if column >= t.width {
-			// The visible cells are full; retain only a bounded combining
-			// suffix rather than scanning an arbitrarily long invisible tail.
-			suffixBudget -= size
-			if suffixBudget < 0 {
-				break
-			}
-		}
-		if r == '\r' {
-			continue
-		}
-		if r == '\t' {
-			spaces := min(8-column%8, t.width-column)
-			line.WriteString(strings.Repeat(" ", spaces))
-			column += spaces
-			continue
-		}
-		if unicode.IsControl(r) {
-			r = utf8.RuneError // Show controls instead of executing escapes.
-		}
-		w := runeWidth(r)
-		if w > 0 && column+w > t.width {
-			if column == 0 { // A wide character in a one-column terminal.
-				line.WriteRune(utf8.RuneError)
-			}
-			break
-		}
-		if w == 0 {
-			bytes := utf8.RuneLen(r)
-			if bytes > zeroWidthBudget {
-				if column >= t.width {
-					break
-				}
-				continue
-			}
-			zeroWidthBudget -= bytes
-		}
-		line.WriteRune(r)
-		column += w
-	}
-	return line.String(), nil
-}
+func (t *Text) Styled() [][]Glyph { return t.rendered }

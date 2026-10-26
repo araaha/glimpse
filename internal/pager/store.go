@@ -2,60 +2,205 @@ package pager
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"sync"
 )
 
 var errNegativeOffset = errors.New("negative byte offset")
+var ErrEvicted = errors.New("requested bytes were discarded by rolling retention")
 
-// Store keeps an append-only byte stream in fixed-capacity chunks. Chunks
-// don't correspond to lines, so a single line can span any number of them.
-// TODO: define a retention policy (disk spool, bounded rolling window, etc.)
-// before using this for an unbounded stream in production.
+type StorageOptions struct {
+	MemoryBudget int64
+	SpoolQuota   int64
+	Retention    string
+	SpoolDir     string
+}
+
+func DefaultStorageOptions() StorageOptions {
+	return StorageOptions{MemoryBudget: 64 << 20, SpoolQuota: 1 << 30, Retention: "lossless"}
+}
+
+// Store bounds resident bytes. Lossless streams spill to a private temporary
+// file and wait at quota; regular files are reread directly. Rolling retention
+// is opt-in, uses a fixed ring, and keeps absolute offsets after eviction.
 type Store struct {
-	mu        sync.RWMutex
-	chunkSize int
-	chunks    [][]byte
-	length    int64
+	mu                     sync.Mutex
+	changed                *sync.Cond
+	chunkSize              int
+	chunks                 [][]byte
+	length, base, resident int64
+	options                StorageOptions
+	spool                  *os.File
+	external               io.ReaderAt
+	externalOffset         int64
+	ring                   []byte
+	closed, paused         bool
 }
 
-// NewStore creates a byte store with the requested chunk size.
 func NewStore(chunkSize int) *Store {
-	if chunkSize <= 0 {
-		panic("pager: chunk size must be positive")
+	s, err := NewStoreWithOptions(chunkSize, DefaultStorageOptions())
+	if err != nil {
+		panic(err)
 	}
-	return &Store{chunkSize: chunkSize}
+	return s
 }
 
-// Write appends p, copying it into chunks owned by the store.
+func NewStoreWithOptions(chunkSize int, options StorageOptions) (*Store, error) {
+	if chunkSize <= 0 {
+		return nil, fmt.Errorf("chunk-size must be positive")
+	}
+	if options.Retention == "" {
+		options.Retention = "lossless"
+	}
+	if options.Retention != "lossless" && options.Retention != "rolling" {
+		return nil, fmt.Errorf("retention must be lossless or rolling")
+	}
+	if options.MemoryBudget < 64 || options.MemoryBudget > int64(int(^uint(0)>>1)) {
+		return nil, fmt.Errorf("memory-budget must be at least 64 bytes and fit in memory")
+	}
+	if options.SpoolQuota < options.MemoryBudget {
+		return nil, fmt.Errorf("spool-quota must be at least memory-budget")
+	}
+	s := &Store{chunkSize: chunkSize, options: options}
+	if options.Retention == "lossless" {
+		capacity := min(int64(chunkSize), options.MemoryBudget-24)
+		headers := min(int64(16), options.MemoryBudget/(capacity+24))
+		s.chunks = make([][]byte, 0, int(headers))
+		s.resident = headers * 24
+	}
+	s.changed = sync.NewCond(&s.mu)
+	return s, nil
+}
+
+func (s *Store) useFile(file io.ReaderAt, offset, length int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return os.ErrClosed
+	}
+	if s.length != 0 {
+		return fmt.Errorf("cannot replace a nonempty document")
+	}
+	s.external, s.externalOffset, s.length = file, offset, length
+	s.chunks, s.resident = nil, 0
+	return nil
+}
+
+func (s *Store) spill() error {
+	file, err := os.CreateTemp(s.options.SpoolDir, "glimpse-spool-*")
+	if err != nil {
+		return fmt.Errorf("create input spool: %w", err)
+	}
+	for _, chunk := range s.chunks {
+		if _, err := file.Write(chunk); err != nil {
+			file.Close()
+			os.Remove(file.Name())
+			return fmt.Errorf("write input spool: %w", err)
+		}
+	}
+	s.spool, s.chunks, s.resident = file, nil, 0
+	return nil
+}
+
 func (s *Store) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	remaining := p
-	for len(remaining) > 0 {
-		if len(s.chunks) == 0 || len(s.chunks[len(s.chunks)-1]) == s.chunkSize {
-			s.chunks = append(s.chunks, make([]byte, 0, s.chunkSize))
-		}
-		last := len(s.chunks) - 1
-		space := s.chunkSize - len(s.chunks[last])
-		n := min(space, len(remaining))
-		s.chunks[last] = append(s.chunks[last], remaining[:n]...)
-		remaining = remaining[n:]
-		s.length += int64(n)
+	if s.closed {
+		return 0, os.ErrClosed
 	}
-	return len(p), nil
+	if s.external != nil {
+		return 0, fmt.Errorf("cannot append to a file-backed snapshot")
+	}
+	if s.options.Retention == "rolling" {
+		if len(s.ring) == 0 {
+			s.ring = make([]byte, int(s.options.MemoryBudget))
+			s.resident = int64(len(s.ring))
+		}
+		n := len(p)
+		if int64(len(p)) > int64(len(s.ring)) {
+			p = p[len(p)-len(s.ring):]
+		}
+		position := (s.length + int64(n-len(p))) % int64(len(s.ring))
+		first := copy(s.ring[int(position):], p)
+		copy(s.ring, p[first:])
+		s.length += int64(n)
+		s.base = max(0, s.length-int64(len(s.ring)))
+		return n, nil
+	}
+	written := 0
+	for len(p) > 0 {
+		for s.length >= s.options.SpoolQuota && !s.closed {
+			s.paused = true
+			s.changed.Wait()
+		}
+		s.paused = false
+		if s.closed {
+			return written, os.ErrClosed
+		}
+		n := int(min(int64(len(p)), s.options.SpoolQuota-s.length))
+		if s.spool == nil {
+			if len(s.chunks) == 0 || len(s.chunks[len(s.chunks)-1]) == cap(s.chunks[len(s.chunks)-1]) {
+				capacity := int(min(int64(s.chunkSize), s.options.MemoryBudget-24))
+				// Include the slice headers in the resident memory accounting.
+				if len(s.chunks) == cap(s.chunks) {
+					raw := s.resident - int64(cap(s.chunks))*24
+					capacityLimit := (s.options.MemoryBudget - raw - int64(capacity)) / 24
+					headers := min(int64(cap(s.chunks)*2), capacityLimit)
+					if headers > int64(cap(s.chunks)) {
+						chunks := make([][]byte, len(s.chunks), int(headers))
+						copy(chunks, s.chunks)
+						s.resident += (headers - int64(cap(s.chunks))) * 24
+						s.chunks = chunks
+					}
+				}
+				if s.resident+int64(capacity) > s.options.MemoryBudget || len(s.chunks) == cap(s.chunks) {
+					if err := s.spill(); err != nil {
+						return written, err
+					}
+				} else {
+					s.chunks = append(s.chunks, make([]byte, 0, capacity))
+					s.resident += int64(capacity)
+				}
+			}
+		}
+		if s.spool != nil {
+			count, err := s.spool.WriteAt(p[:n], s.length)
+			s.length += int64(count)
+			written += count
+			if err != nil {
+				return written, fmt.Errorf("write input spool: %w", err)
+			}
+			p = p[count:]
+		} else {
+			last := len(s.chunks) - 1
+			n = min(n, cap(s.chunks[last])-len(s.chunks[last]))
+			s.chunks[last] = append(s.chunks[last], p[:n]...)
+			s.length += int64(n)
+			written += n
+			p = p[n:]
+		}
+	}
+	return written, nil
 }
 
-// Len returns the total number of bytes appended.
-func (s *Store) Len() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.length
+func (s *Store) Len() int64         { s.mu.Lock(); defer s.mu.Unlock(); return s.length }
+func (s *Store) Start() int64       { s.mu.Lock(); defer s.mu.Unlock(); return s.base }
+func (s *Store) MemoryBytes() int64 { s.mu.Lock(); defer s.mu.Unlock(); return s.resident }
+func (s *Store) Paused() bool       { s.mu.Lock(); defer s.mu.Unlock(); return s.paused }
+
+func (s *Store) SetQuota(quota int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if quota < max(s.length, s.options.MemoryBudget) {
+		return fmt.Errorf("spool quota cannot be smaller than retained input or memory budget")
+	}
+	s.options.SpoolQuota = quota
+	s.changed.Broadcast()
+	return nil
 }
 
-// ReadAt copies data starting at off. It follows io.ReaderAt's EOF behavior
-// when fewer than len(p) bytes are currently available.
 func (s *Store) ReadAt(p []byte, off int64) (int, error) {
 	if off < 0 {
 		return 0, errNegativeOffset
@@ -63,46 +208,89 @@ func (s *Store) ReadAt(p []byte, off int64) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, os.ErrClosed
+	}
+	return s.readAt(p, off)
+}
+
+func (s *Store) readAt(p []byte, off int64) (int, error) {
+	if off < s.base {
+		return 0, ErrEvicted
+	}
 	if off >= s.length {
 		return 0, io.EOF
 	}
-
-	want := min(int64(len(p)), s.length-off)
-	read := 0
-	for int64(read) < want {
-		position := off + int64(read)
-		chunkIndex := int(position / int64(s.chunkSize))
-		chunkOffset := int(position % int64(s.chunkSize))
-		n := copy(p[read:int(want)], s.chunks[chunkIndex][chunkOffset:])
-		read += n
+	want := int(min(int64(len(p)), s.length-off))
+	n := 0
+	if s.external != nil {
+		var err error
+		n, err = s.external.ReadAt(p[:want], s.externalOffset+off)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return n, err
+		}
+		if n < want {
+			return n, io.ErrUnexpectedEOF
+		}
+	} else if s.spool != nil {
+		var err error
+		n, err = s.spool.ReadAt(p[:want], off)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return n, err
+		}
+		if n < want {
+			return n, io.ErrUnexpectedEOF
+		}
+	} else if len(s.ring) > 0 {
+		position := int(off % int64(len(s.ring)))
+		n = copy(p[:want], s.ring[position:])
+		n += copy(p[n:want], s.ring[:want-n])
+	} else {
+		position := int64(0)
+		for _, chunk := range s.chunks {
+			if position+int64(len(chunk)) > off && n < want {
+				start := int(max(0, off-position))
+				count := copy(p[n:want], chunk[start:])
+				n += count
+				off += int64(count)
+			}
+			position += int64(len(chunk))
+		}
 	}
-	if read < len(p) {
-		return read, io.EOF
+	if n < len(p) {
+		return n, io.EOF
 	}
-	return read, nil
+	return n, nil
 }
 
-// Tail returns a copy of the last maxBytes bytes, or all bytes if the store is
-// shorter. A fresh copy keeps callers from observing mutable chunk storage.
 func (s *Store) Tail(maxBytes int) []byte {
-	if maxBytes <= 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if maxBytes <= 0 || s.closed {
 		return nil
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	length := min(int64(maxBytes), s.length)
-	result := make([]byte, int(length))
-	off := s.length - length
-	read := 0
-	for int64(read) < length {
-		position := off + int64(read)
-		chunkIndex := int(position / int64(s.chunkSize))
-		chunkOffset := int(position % int64(s.chunkSize))
-		n := copy(result[read:], s.chunks[chunkIndex][chunkOffset:])
-		read += n
-	}
+	n := min(int64(maxBytes), s.length-s.base)
+	result := make([]byte, int(n))
+	s.readAt(result, s.length-n)
 	return result
+}
+
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	s.changed.Broadcast()
+	s.chunks, s.ring, s.resident = nil, nil, 0
+	if s.spool == nil {
+		return nil
+	}
+	name := s.spool.Name()
+	err := s.spool.Close()
+	removeErr := os.Remove(name)
+	return errors.Join(err, removeErr)
 }

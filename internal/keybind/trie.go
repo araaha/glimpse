@@ -1,6 +1,9 @@
 package keybind
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type node struct {
 	children map[Key]*node
@@ -12,6 +15,18 @@ type node struct {
 type Matcher struct {
 	root    node
 	pending []Key
+	count   int
+	insert  bool
+}
+
+// Command carries an optional numeric prefix. Count is zero when omitted.
+type Command struct {
+	Action Action
+	Count  int
+	Text   string
+	// Remainder preserves raw keys after a mode-switching match, so the new
+	// mode can interpret a mismatching suffix using its own bindings.
+	Remainder []Key
 }
 
 func NewMatcher(bindings []Binding) (*Matcher, error) {
@@ -40,13 +55,28 @@ func NewMatcher(bindings []Binding) (*Matcher, error) {
 
 // Feed may return two actions when an ambiguous shorter binding is completed
 // and the mismatching key also matches a binding at the root.
-func (m *Matcher) Feed(key Key) []Action {
+func (m *Matcher) Feed(key Key) []Command {
 	m.pending = append(m.pending, key)
 	return m.resolve(false)
 }
 
-func (m *Matcher) Pending() bool { return len(m.pending) != 0 }
-func (m *Matcher) Cancel()       { m.pending = nil }
+func (m *Matcher) Pending() bool { return len(m.pending) != 0 || m.count != 0 }
+func (m *Matcher) Cancel()       { m.pending, m.count = nil, 0 }
+
+// DrainLiteral settles prompt text before bracketed paste without executing a
+// pending shortcut (in particular, an ambiguous accept/cancel binding).
+func (m *Matcher) DrainLiteral() []Command {
+	var commands []Command
+	if m.insert {
+		for _, key := range m.pending {
+			if !strings.HasPrefix(string(key), "<") || key == "<" {
+				commands = append(commands, Command{Action: Insert, Text: string(key)})
+			}
+		}
+	}
+	m.Cancel()
+	return commands
+}
 
 // NeedsTimeout reports whether pending input includes a completed binding that
 // could fire instead of a longer sequence. A bare "g" in "gg" has no action to
@@ -64,16 +94,31 @@ func (m *Matcher) NeedsTimeout() bool {
 
 // Flush resolves an ambiguous timeout. Pure prefixes remain pending until a
 // continuation, a mismatch, or an explicit cancellation arrives.
-func (m *Matcher) Flush() []Action {
+func (m *Matcher) Flush() []Command {
 	if !m.NeedsTimeout() {
 		return nil
 	}
 	return m.resolve(true)
 }
 
-func (m *Matcher) resolve(expired bool) []Action {
-	var actions []Action
+func (m *Matcher) resolve(expired bool) []Command {
+	var actions []Command
 	for len(m.pending) > 0 {
+		// Explicit digit bindings take precedence over starting a count. Once
+		// started, a count consumes all following digits, saturating on overflow.
+		key := m.pending[0]
+		if !m.insert && len(key) == 1 && key[0] >= '0' && key[0] <= '9' &&
+			(m.count > 0 || (key != "0" && m.root.children[key] == nil)) {
+			digit := int(key[0] - '0')
+			limit := int(^uint(0) >> 1)
+			if m.count > (limit-digit)/10 {
+				m.count = limit
+			} else {
+				m.count = m.count*10 + digit
+			}
+			m.pending = m.pending[1:]
+			continue
+		}
 		n := &m.root
 		matched, lastMatch := 0, 0
 		var action Action
@@ -88,12 +133,25 @@ func (m *Matcher) resolve(expired bool) []Action {
 			break
 		}
 		if action != "" {
-			actions = append(actions, action)
+			command := Command{Action: action, Count: m.count}
+			if action == SearchForward || action == SearchBackward || action == CommandInput || (m.insert && (action == SearchCancel || action == Accept)) {
+				command.Remainder = append([]Key(nil), m.pending[lastMatch:]...)
+			}
+			actions = append(actions, command)
+			m.count = 0
 			m.pending = m.pending[lastMatch:]
 		} else if matched == len(m.pending) {
 			m.Cancel()
 		} else {
 			// Discard an incomplete prefix, but retry the mismatching key.
+			m.count = 0
+			if m.insert {
+				for _, key := range m.pending[:max(1, matched)] {
+					if !strings.HasPrefix(string(key), "<") || key == "<" {
+						actions = append(actions, Command{Action: Insert, Text: string(key)})
+					}
+				}
+			}
 			m.pending = m.pending[max(1, matched):]
 		}
 	}

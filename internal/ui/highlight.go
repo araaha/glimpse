@@ -1,0 +1,60 @@
+package ui
+
+import (
+	"context"
+	"glimpse/internal/search"
+	"sort"
+	"unicode/utf8"
+)
+
+// Highlights maps overlapping source matches to rendered glyphs, never to
+// expanded tabs or other transformed display text. Glyph memory is viewport-bound.
+func (t *Text) Highlights(lines []string, top int, query string, smart, ignore bool) []Highlight {
+	if query == "" || len(lines) == 0 {
+		return nil
+	}
+	type markedGlyph struct {
+		glyph  Glyph
+		row    int
+		marked bool
+		maxEnd int64
+	}
+	var cells []markedGlyph
+	for row, glyphs := range t.rendered {
+		for _, glyph := range glyphs {
+			if glyph.Start >= 0 {
+				cells = append(cells, markedGlyph{glyph: glyph, row: row})
+			}
+		}
+	}
+	if len(cells) == 0 {
+		return nil
+	}
+	sort.Slice(cells, func(i, j int) bool { return cells[i].glyph.Start < cells[j].glyph.Start })
+	maximum := int64(0)
+	for i := range cells {
+		maximum = max(maximum, cells[i].glyph.End)
+		cells[i].maxEnd = maximum
+	}
+	lookaround := utf8.RuneCountInString(query)
+	start, end := t.Offset(max(0, top-lookaround)), t.scanned
+	if row := top + len(lines) + lookaround; row < t.RowCount() {
+		end = t.Offset(row)
+	}
+	_ = search.Walk(context.Background(), t.source, query, start, end, smart, ignore, func(start, end int64) bool {
+		index := sort.Search(len(cells), func(i int) bool { return cells[i].maxEnd > start })
+		for i := index; i < len(cells) && cells[i].glyph.Start < end; i++ {
+			if cells[i].glyph.End > start {
+				cells[i].marked = true
+			}
+		}
+		return true
+	})
+	var result []Highlight
+	for _, cell := range cells {
+		if cell.marked && cell.glyph.Width > 0 {
+			result = append(result, Highlight{cell.row, cell.glyph.Column, cell.glyph.Width})
+		}
+	}
+	return result
+}
