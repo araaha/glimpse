@@ -7,6 +7,8 @@ import (
 	"glimpse/internal/keybind"
 	"glimpse/internal/pager"
 	"glimpse/internal/ui"
+
+	"github.com/gdamore/tcell/v3"
 )
 
 // Options contains startup settings resolved by the CLI configuration layer.
@@ -25,6 +27,8 @@ type Options struct {
 	MetadataBudget    int64
 	MetadataQuota     int64
 	AmbiguousWidth    int
+	Statusline        ui.StatuslineConfig
+	SearchHighlight   ui.Colors
 }
 
 // App coordinates asynchronous ingestion with viewport-sized rendering.
@@ -41,10 +45,20 @@ type App struct {
 	metadataBudget, metadataQuota int64
 	wideAmbiguous                 bool
 	follow                        bool
+	Statusline                    *ui.Statusline
+	SearchHighlight               tcell.Style
 }
 
 // New creates document storage and view state without initializing a terminal.
 func New(options Options) (*App, error) {
+	statusline, err := ui.NewStatusline(options.Statusline)
+	if err != nil {
+		return nil, err
+	}
+	highlight, err := options.SearchHighlight.Style(tcell.StyleDefault)
+	if err != nil {
+		return nil, fmt.Errorf("search highlight: %w", err)
+	}
 	model, err := ui.NewModel(options.CmdHeight)
 	if err != nil {
 		return nil, err
@@ -102,6 +116,8 @@ func New(options Options) (*App, error) {
 		metadataQuota:     options.MetadataQuota,
 		wideAmbiguous:     options.AmbiguousWidth == 2,
 		follow:            options.Follow,
+		Statusline:        statusline,
+		SearchHighlight:   highlight,
 	}, nil
 }
 

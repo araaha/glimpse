@@ -73,7 +73,7 @@ func startBottomViewer(t *testing.T, options Options, tail string) (testViewer, 
 		}
 	})
 	frame := waitFrame(t, recorder.frames, firstFrameLine("row000000"))
-	if !strings.Contains(frame.Status, "indexing") {
+	if !frame.Indexing {
 		t.Fatal("test input fully indexed before jump; did not exercise deferred G")
 	}
 	return testViewer{screen: screen, frames: recorder.frames, result: result, release: release}, writer
@@ -122,9 +122,9 @@ func TestRunBottomPaintsOnlyDestination(t *testing.T) {
 				t.Fatal(err)
 			}
 			frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
-				return !strings.Contains(frame.Status, "indexing") && frame.Status != destination.Status
+				return !frame.Indexing && frame.DocumentLength != destination.DocumentLength
 			})
-			if !firstFrameLine("TAIL1")(frame) || strings.Contains(frame.Status, "FOLLOW") {
+			if !firstFrameLine("TAIL1")(frame) || frame.Follow {
 				t.Fatalf("G followed later stream input: %+v", frame)
 			}
 			viewer.press("q")
@@ -155,7 +155,7 @@ func TestRunPendingBottomTargetsSnapshotWhileStreamGrows(t *testing.T) {
 		if !firstFrameLine("row000000")(frame) {
 			t.Fatalf("G moved viewport before snapshot was indexed: %q", frame.Lines)
 		}
-		return strings.Contains(frame.Status, "seeking end")
+		return frame.SeekingEnd
 	})
 	if _, err := io.WriteString(writer, strings.Repeat("LATER\n", 50000)); err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestRunPendingBottomTargetsSnapshotWhileStreamGrows(t *testing.T) {
 		if !firstFrameLine("row000000")(frame) && !firstFrameLine("TAIL1")(frame) {
 			t.Fatalf("G chased newly appended input: %q", frame.Lines)
 		}
-		return firstFrameLine("TAIL1")(frame) && !strings.Contains(frame.Status, "seeking end")
+		return firstFrameLine("TAIL1")(frame) && !frame.SeekingEnd
 	})
 	viewer.press("q")
 	viewer.expectExit(t)
@@ -187,7 +187,7 @@ func TestRunPendingBottomCanBeCanceled(t *testing.T) {
 				if len(frame.Lines) > 0 && frame.Lines[0] != "row000000" && frame.Lines[0] != want {
 					t.Fatalf("canceled G moved viewport: %q", frame.Lines)
 				}
-				return firstFrameLine(want)(frame) && !strings.Contains(frame.Status, "indexing")
+				return firstFrameLine(want)(frame) && !frame.Indexing
 			})
 			viewer.press("q")
 			viewer.expectExit(t)

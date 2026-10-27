@@ -29,6 +29,11 @@ type testViewer struct {
 
 func startTestViewer(t *testing.T, options Options, input string, width, height int) testViewer {
 	t.Helper()
+	return startNamedTestViewer(t, options, input, "test", width, height)
+}
+
+func startNamedTestViewer(t *testing.T, options Options, input, name string, width, height int) testViewer {
+	t.Helper()
 	application, err := New(options)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +49,7 @@ func startTestViewer(t *testing.T, options Options, input string, width, height 
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		result <- application.run(ctx, io.NopCloser(strings.NewReader(input)), "test", screen)
+		result <- application.run(ctx, io.NopCloser(strings.NewReader(input)), name, screen)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -55,7 +60,7 @@ func startTestViewer(t *testing.T, options Options, input string, width, height 
 		}
 	})
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
-		return len(frame.Lines) > 0 && !strings.Contains(frame.Status, "reading")
+		return (len(frame.Lines) > 0 || input == "") && !frame.Reading
 	})
 	return testViewer{screen: screen, frames: recorder.frames, result: result}
 }
@@ -373,7 +378,7 @@ func TestRunQuotaCommandResumesIngestion(t *testing.T) {
 	viewer.typeText("set spool-quota=512")
 	viewer.press("<Enter>")
 	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
-		return frame.Search == "spool-quota=512" && !strings.Contains(frame.Status, "reading")
+		return frame.Search == "spool-quota=512" && !frame.Reading
 	})
 	viewer.press("q")
 	viewer.expectExit(t)
@@ -482,7 +487,7 @@ func TestRunLargeFilePaintsAndQuitsBeforeFullIndex(t *testing.T) {
 		}
 	})
 	frame := waitFrame(t, recorder.frames, firstFrameLine("header"))
-	if !strings.Contains(frame.Status, "indexing") {
+	if !frame.Indexing {
 		t.Fatal("large file was completely indexed before first visible frame")
 	}
 	viewer := testViewer{screen: screen, frames: recorder.frames, result: result}
@@ -527,7 +532,7 @@ func TestRunFollowCatchesUpWithNewlineFreeBurst(t *testing.T) {
 		written <- err
 	}()
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
-		return strings.Contains(strings.Join(frame.Lines, ""), "LATEST-TAIL-MARKER") && strings.Contains(frame.Status, "FOLLOW")
+		return strings.Contains(strings.Join(frame.Lines, ""), "LATEST-TAIL-MARKER") && frame.Follow
 	})
 	if err := <-written; err != nil {
 		t.Fatal(err)
@@ -636,7 +641,7 @@ func TestRunCountedGotoLogicalLine(t *testing.T) {
 			viewer.press("5", "0")
 			viewer.press(tt.binding...)
 			frame := waitFrame(t, viewer.frames, firstFrameLine("line50-w"))
-			if len(frame.Lines) < 2 || frame.Lines[1] != "rapped" || strings.Contains(frame.Status, "FOLLOW") {
+			if len(frame.Lines) < 2 || frame.Lines[1] != "rapped" || frame.Follow {
 				t.Fatalf("counted jump did not preserve wrapping or leave follow: %+v", frame)
 			}
 			viewer.press("1")
@@ -777,7 +782,10 @@ func TestRunStreamsScrollsAndTogglesStatus(t *testing.T) {
 	firstLine := func(want string) func(ui.Frame) bool {
 		return func(frame ui.Frame) bool { return len(frame.Lines) > 0 && frame.Lines[0] == want }
 	}
-	waitFrame(t, recorder.frames, firstLine("abcdefgh"))
+	initial := waitFrame(t, recorder.frames, firstLine("abcdefgh"))
+	if initial.StatusState.Filename != "" || initial.StatusState.TotalLinesKnown || initial.StatusState.TopLine != 1 {
+		t.Fatalf("live stdin status = %+v", initial.StatusState)
+	}
 	key := func(text string) { screen.EventQ() <- tcell.NewEventKey(tcell.KeyRune, text, tcell.ModNone) }
 	key("j")
 	waitFrame(t, recorder.frames, firstLine("ijklmnop"))
@@ -852,7 +860,7 @@ func TestRunFollowsAndCtrlCQuitsPendingSequence(t *testing.T) {
 	})
 	io.WriteString(writer, "abcdefghijkl")
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
-		return len(frame.Lines) == 3 && frame.Lines[0] == "abcd" && strings.Contains(frame.Status, "FOLLOW")
+		return len(frame.Lines) == 3 && frame.Lines[0] == "abcd" && frame.Follow
 	})
 	io.WriteString(writer, "mnop")
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
