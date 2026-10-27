@@ -17,6 +17,16 @@ type searchReader struct {
 	hasPending, hasQueued bool
 	batch                 content.ASCIIRun
 	single                [1]byte
+	// boundary, when positive, is a proposed restart offset. straddled records
+	// a decoded token spanning it, so restarting there would decode differently.
+	boundary  int64
+	straddled bool
+}
+
+func (r *searchReader) check(start, end int64) {
+	if start < r.boundary && end > r.boundary {
+		r.straddled = true
+	}
 }
 
 // ascii emits text proven not to be part of an overstrike, without manufacturing
@@ -57,6 +67,7 @@ func (r *searchReader) raw() (content.Token, error) {
 		if err != nil {
 			return token, err
 		}
+		r.check(token.Start, token.End)
 		if !token.Hidden {
 			return token, nil
 		}

@@ -93,9 +93,19 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 }
 
 func walk(ctx context.Context, source Source, query string, start, end, lastStart int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
+	_, _, err := walkChecked(ctx, source, query, start, end, lastStart, 0, smartCase, ignoreCase, visit)
+	return err
+}
+
+// walkChecked also reports whether a decoded token spans boundary (when
+// positive). Unless visit stops early, decoding passes lastStart, so a walk with
+// lastStart = boundary-1 has examined every token that could span it. open
+// reports that decoding reached end before passing lastStart, so matches
+// starting through lastStart may change once more input arrives.
+func walkChecked(ctx context.Context, source Source, query string, start, end, lastStart, boundary int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) (straddled, open bool, err error) {
 	pattern := []rune(query)
 	if len(pattern) == 0 {
-		return nil
+		return false, false, nil
 	}
 	fold := smartCase || ignoreCase
 	for _, r := range pattern {
@@ -121,7 +131,7 @@ func walk(ctx context.Context, source Source, query string, start, end, lastStar
 	end = min(end, source.Len())
 	start = min(max(sourceStart(source), start), end)
 	offsets := make([]int64, len(pattern))
-	reader := searchReader{reader: content.NewPlainReader(source, start, end), ctx: ctx}
+	reader := searchReader{reader: content.NewPlainReader(source, start, end), ctx: ctx, boundary: boundary}
 	index := 0
 	matched := 0
 	consume := func(r rune, start, end int64) bool {
@@ -171,14 +181,14 @@ func walk(ctx context.Context, source Source, query string, start, end, lastStar
 	}
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return false, false, err
 		}
 		if run, ok := reader.ascii(); ok {
 			if err := ctx.Err(); err != nil {
-				return err
+				return false, false, err
 			}
 			if run.Start > lastStart && matched == 0 {
-				return nil
+				return reader.straddled, false, nil
 			}
 			data, offset := run.Bytes, run.Start
 			for len(data) > 0 {
@@ -197,7 +207,7 @@ func walk(ctx context.Context, source Source, query string, start, end, lastStar
 					data, offset = data[i:], offset+int64(i)
 				}
 				if !consume(rune(data[0]), offset, offset+1) {
-					return nil
+					return reader.straddled, false, nil
 				}
 				data, offset = data[1:], offset+1
 			}
@@ -208,16 +218,18 @@ func walk(ctx context.Context, source Source, query string, start, end, lastStar
 			break
 		}
 		if err != nil {
-			return err
+			return false, false, err
 		}
+		// Overstrike normalization can merge tokens across a hidden control.
+		reader.check(token.Start, token.End)
 		if token.Hidden {
 			continue
 		}
 		if !consume(token.Raw, token.Start, token.End) {
-			return nil
+			return reader.straddled, false, nil
 		}
 	}
-	return nil
+	return reader.straddled, true, nil
 }
 
 func sourceStart(source Source) int64 {
