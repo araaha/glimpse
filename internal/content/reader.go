@@ -20,6 +20,46 @@ type Token struct {
 	UnderlineColor Color
 }
 
+type ASCIIRun struct {
+	Bytes          []byte
+	Start          int64
+	Style          Style
+	UnderlineColor Color
+}
+
+func asciiPrefix(data []byte) int {
+	n := 0
+	for n < len(data) && (data[n] >= ' ' && data[n] <= '~' || data[n] == '\n') {
+		n++
+	}
+	// The final printable rune may acquire a combining suffix or joiner,
+	// including across hidden styling or the next published input chunk.
+	if n > 0 && data[n-1] != '\n' {
+		n--
+	}
+	return n
+}
+
+func (r *Reader) ascii() (ASCIIRun, bool) {
+	if r.reader.Buffered() == 0 {
+		if _, err := r.reader.Peek(1); err != nil {
+			return ASCIIRun{}, false
+		}
+	}
+	if r.reader.Buffered() == 1 {
+		r.reader.Peek(2)
+	}
+	data, _ := r.reader.Peek(r.reader.Buffered())
+	n := asciiPrefix(data)
+	if n == 0 {
+		return ASCIIRun{}, false
+	}
+	run := ASCIIRun{Bytes: data[:n], Start: r.offset, Style: r.style, UnderlineColor: r.underlineColor}
+	r.reader.Discard(n)
+	r.offset += int64(n)
+	return run, true
+}
+
 // Reader limits control sequences to 4096 bytes. Malformed or oversized input
 // falls back to visible replacement text; it can never reach the real terminal
 // as an escape. Incomplete UTF-8/escapes wait only while the source is still live.

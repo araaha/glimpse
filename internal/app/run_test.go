@@ -444,6 +444,94 @@ func TestRunComposedInsertionPreservesExistingSuffixOrder(t *testing.T) {
 	}
 }
 
+func TestRunLargeFilePaintsAndQuitsBeforeFullIndex(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "large-input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("header\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(256 << 20); err != nil {
+		t.Fatal(err)
+	}
+	file.Seek(0, io.SeekStart)
+	application, _ := New(Options{})
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 24}), tcell.OptNegotiation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 32)}
+	application.Renderer = recorder
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); result <- application.run(ctx, file, "large", screen) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-stopped:
+		case <-time.After(3 * time.Second):
+			t.Error("large-file viewer did not stop")
+		}
+	})
+	frame := waitFrame(t, recorder.frames, firstFrameLine("header"))
+	if !strings.Contains(frame.Status, "indexing") {
+		t.Fatal("large file was completely indexed before first visible frame")
+	}
+	viewer := testViewer{screen: screen, frames: recorder.frames, result: result}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
+func TestRunFollowCatchesUpWithNewlineFreeBurst(t *testing.T) {
+	application, _ := New(Options{Follow: true})
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 24}), tcell.OptNegotiation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 64)}
+	application.Renderer = recorder
+	input, writer := io.Pipe()
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); result <- application.run(ctx, input, "stream", screen) }()
+	t.Cleanup(func() {
+		cancel()
+		writer.Close()
+		select {
+		case <-stopped:
+		case <-time.After(3 * time.Second):
+			t.Error("stream viewer did not stop")
+		}
+	})
+	written := make(chan error, 1)
+	go func() {
+		part := []byte(strings.Repeat("a", 64<<10))
+		for range 512 {
+			if _, err := writer.Write(part); err != nil {
+				written <- err
+				return
+			}
+		}
+		_, err := io.WriteString(writer, "LATEST-TAIL-MARKER")
+		written <- err
+	}()
+	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
+		return strings.Contains(strings.Join(frame.Lines, ""), "LATEST-TAIL-MARKER") && strings.Contains(frame.Status, "FOLLOW")
+	})
+	if err := <-written; err != nil {
+		t.Fatal(err)
+	}
+	viewer := testViewer{screen: screen, frames: recorder.frames, result: result}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
 func TestRunSearchHistoryFailureIsNonfatal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

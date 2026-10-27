@@ -31,6 +31,7 @@ type GraphemeReader struct {
 	data                                    []byte
 	tokens                                  []Token
 	ends                                    []int64
+	dataStart, tokenStart                   int
 	encoded, consumed                       int64
 	lastEnd, emittedEnd                     int64
 	lastStyle                               Style
@@ -48,6 +49,52 @@ func (r *GraphemeReader) SetRenderState(width, column, extent int, wide bool) {
 	r.checkedFull = false
 }
 
+// ASCII batches only proven one-cell graphemes and newlines. It deliberately
+// leaves the last printable byte for Next, retaining Unicode boundary semantics.
+// Bytes is valid until the next reader operation.
+func (r *GraphemeReader) ASCII() (ASCIIRun, bool) {
+	if r.dataStart < len(r.data) {
+		data, tokens := r.data[r.dataStart:], r.tokens[r.tokenStart:]
+		n := asciiPrefix(data)
+		if n == 0 && len(data) == 1 && data[0] >= ' ' && data[0] <= '~' {
+			peek, _ := r.reader.reader.Peek(1)
+			if len(peek) > 0 && (peek[0] >= ' ' && peek[0] <= '~' || peek[0] == '\n' || peek[0] == '\r' || peek[0] == '\b' || peek[0] == '\t') {
+				n = 1
+			}
+		}
+		if n == 0 {
+			return ASCIIRun{}, false
+		}
+		first := tokens[0]
+		for i := 0; i < n; i++ {
+			token := tokens[i]
+			if token.Start != first.Start+int64(i) || token.End != token.Start+1 || token.Style != first.Style || token.UnderlineColor != first.UnderlineColor {
+				n = i
+				break
+			}
+		}
+		if n == 0 {
+			return ASCIIRun{}, false
+		}
+		r.dataStart += n
+		r.tokenStart += n
+		r.consumed += int64(n)
+		r.emittedEnd = first.Start + int64(n)
+		return ASCIIRun{Bytes: data[:n], Start: first.Start, Style: first.Style, UnderlineColor: first.UnderlineColor}, true
+	}
+	if r.eof {
+		return ASCIIRun{}, false
+	}
+	run, ok := r.reader.ascii()
+	if ok {
+		r.encoded += int64(len(run.Bytes))
+		r.consumed += int64(len(run.Bytes))
+		r.lastEnd, r.emittedEnd = run.Start+int64(len(run.Bytes)), run.Start+int64(len(run.Bytes))
+		r.lastStyle, r.lastUnderlineColor = run.Style, run.UnderlineColor
+	}
+	return run, ok
+}
+
 func NewGraphemeReader(source io.ReaderAt, start, end int64, style Style, complete bool, underline ...Color) *GraphemeReader {
 	r := &GraphemeReader{reader: NewReader(source, start, end, style, complete, underline...), complete: complete, lastEnd: start, emittedEnd: start, lastStyle: style}
 	if len(underline) > 0 {
@@ -57,6 +104,21 @@ func NewGraphemeReader(source io.ReaderAt, start, end int64, style Style, comple
 }
 
 func (r *GraphemeReader) fill(target int) error {
+	// Compact only when more input is needed. Sliding the slices and topping
+	// them up after every character discarded their capacity and reallocated
+	// token buffers hundreds of times per input block.
+	if r.dataStart > 0 {
+		copy(r.data, r.data[r.dataStart:])
+		r.data = r.data[:len(r.data)-r.dataStart]
+		r.dataStart = 0
+	}
+	if r.tokenStart > 0 {
+		copy(r.tokens, r.tokens[r.tokenStart:])
+		r.tokens = r.tokens[:len(r.tokens)-r.tokenStart]
+		copy(r.ends, r.ends[r.tokenStart:])
+		r.ends = r.ends[:len(r.ends)-r.tokenStart]
+		r.tokenStart = 0
+	}
 	for len(r.data) < target && !r.eof {
 		token, err := r.reader.Next()
 		if errors.Is(err, io.EOF) || errors.Is(err, ErrIncomplete) {
@@ -95,10 +157,12 @@ func (r *GraphemeReader) fill(target int) error {
 }
 
 func (r *GraphemeReader) Next() (Cluster, error) {
-	if err := r.fill(256); err != nil {
-		return Cluster{}, err
+	if r.dataStart == len(r.data) {
+		if err := r.fill(256); err != nil {
+			return Cluster{}, err
+		}
 	}
-	if len(r.data) == 0 {
+	if r.dataStart == len(r.data) {
 		if r.lastEnd > r.emittedEnd {
 			token := Token{Start: r.emittedEnd, End: r.lastEnd, Style: r.lastStyle, Hidden: true, UnderlineColor: r.lastUnderlineColor}
 			r.emittedEnd = r.lastEnd
@@ -106,14 +170,18 @@ func (r *GraphemeReader) Next() (Cluster, error) {
 		}
 		return Cluster{}, io.EOF
 	}
+	data, tokens := r.data[r.dataStart:], r.tokens[r.tokenStart:]
 	advance := 0
-	control := r.tokens[0].Rune == '\r' || r.tokens[0].Rune == '\n' || r.tokens[0].Rune == '\b' || r.tokens[0].Rune == '\t'
+	control := tokens[0].Rune == '\r' || tokens[0].Rune == '\n' || tokens[0].Rune == '\b' || tokens[0].Rune == '\t'
 	if control {
-		advance = utf8.RuneLen(r.tokens[0].Rune)
+		advance = utf8.RuneLen(tokens[0].Rune)
+	}
+	if !control && len(data) > 1 && data[0] < utf8.RuneSelf && data[1] < utf8.RuneSelf {
+		advance = 1
 	}
 	for advance == 0 {
 		var err error
-		advance, _, err = graphemes.SplitFunc(r.data, r.eof)
+		advance, _, err = graphemes.SplitFunc(data, r.eof)
 		if err != nil {
 			return Cluster{}, err
 		}
@@ -121,29 +189,35 @@ func (r *GraphemeReader) Next() (Cluster, error) {
 		if advance > 0 {
 			break
 		}
-		if len(r.data) >= MaxClusterBytes+utf8.UTFMax {
+		if len(data) >= MaxClusterBytes+utf8.UTFMax {
 			return Cluster{}, fmt.Errorf("grapheme cluster exceeds %d-byte safety limit", MaxClusterBytes)
 		}
-		if err := r.fill(min(MaxClusterBytes+utf8.UTFMax, max(512, len(r.data)*2))); err != nil {
+		if err := r.fill(min(MaxClusterBytes+utf8.UTFMax, max(512, len(data)*2))); err != nil {
 			return Cluster{}, err
 		}
+		data, tokens = r.data[r.dataStart:], r.tokens[r.tokenStart:]
 	}
 	if advance > MaxClusterBytes {
 		return Cluster{}, fmt.Errorf("grapheme cluster exceeds %d-byte safety limit", MaxClusterBytes)
 	}
 	end := r.consumed + int64(advance)
-	count := sort.Search(len(r.ends), func(i int) bool { return r.ends[i] >= end }) + 1
-	token := r.tokens[0]
-	token.End = r.tokens[count-1].End
-	after := r.tokens[count-1].Style
-	afterUnderline := r.tokens[count-1].UnderlineColor
-	last := count == len(r.tokens) && r.eof
+	count := 1
+	if advance > utf8.RuneLen(tokens[0].Rune) {
+		ends := r.ends[r.tokenStart:]
+		count = sort.Search(len(ends), func(i int) bool { return ends[i] >= end }) + 1
+	}
+	token := tokens[0]
+	token.End = tokens[count-1].End
+	after := tokens[count-1].Style
+	afterUnderline := tokens[count-1].UnderlineColor
+	last := count == len(tokens) && r.eof
 	if last && !control {
 		token.End, after = r.lastEnd, r.lastStyle
 		afterUnderline = r.lastUnderlineColor
 	}
-	cluster := Cluster{Token: token, Text: string(r.data[:advance]), AfterStyle: after, AfterUnderlineColor: afterUnderline, Open: last && !r.complete && !control}
-	r.data, r.tokens, r.ends = r.data[advance:], r.tokens[count:], r.ends[count:]
+	cluster := Cluster{Token: token, Text: string(data[:advance]), AfterStyle: after, AfterUnderlineColor: afterUnderline, Open: last && !r.complete && !control}
+	r.dataStart += advance
+	r.tokenStart += count
 	r.consumed, r.emittedEnd = end, token.End
 	return cluster, nil
 }

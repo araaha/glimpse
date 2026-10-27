@@ -29,6 +29,7 @@ type Store struct {
 	mu                     sync.Mutex
 	changed                *sync.Cond
 	chunkSize              int
+	chunkCapacity          int
 	chunks                 [][]byte
 	length, base, resident int64
 	options                StorageOptions
@@ -64,6 +65,7 @@ func NewStoreWithOptions(chunkSize int, options StorageOptions) (*Store, error) 
 		return nil, fmt.Errorf("spool-quota must be at least memory-budget")
 	}
 	s := &Store{chunkSize: chunkSize, options: options}
+	s.chunkCapacity = int(min(int64(chunkSize), options.MemoryBudget-24))
 	if options.Retention == "lossless" {
 		capacity := min(int64(chunkSize), options.MemoryBudget-24)
 		headers := min(int64(16), options.MemoryBudget/(capacity+24))
@@ -248,15 +250,12 @@ func (s *Store) readAt(p []byte, off int64) (int, error) {
 		n = copy(p[:want], s.ring[position:])
 		n += copy(p[n:want], s.ring[:want-n])
 	} else {
-		position := int64(0)
-		for _, chunk := range s.chunks {
-			if position+int64(len(chunk)) > off && n < want {
-				start := int(max(0, off-position))
-				count := copy(p[n:want], chunk[start:])
-				n += count
-				off += int64(count)
-			}
-			position += int64(len(chunk))
+		index, position := int(off/int64(s.chunkCapacity)), int(off%int64(s.chunkCapacity))
+		for n < want && index < len(s.chunks) {
+			count := copy(p[n:want], s.chunks[index][position:])
+			n += count
+			index++
+			position = 0
 		}
 	}
 	if n < len(p) {

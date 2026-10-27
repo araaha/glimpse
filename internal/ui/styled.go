@@ -8,6 +8,29 @@ import (
 )
 
 func (t *Text) readStyledRow(start, end int64, style content.Style, underline content.Color) ([]Glyph, error) {
+	if length := end - start; length > 0 && length <= int64(len(t.renderScratch)) {
+		data := t.renderScratch[:int(length)]
+		if _, err := t.source.ReadAt(data, start); err != nil {
+			return nil, err
+		}
+		count, plain := len(data), true
+		if data[count-1] == '\n' {
+			count--
+		}
+		for _, b := range data[:count] {
+			if b < ' ' || b > '~' {
+				plain = false
+				break
+			}
+		}
+		if plain && count <= t.width {
+			glyphs := make([]Glyph, count)
+			for i := range data[:count] {
+				glyphs[i] = Glyph{Text: string(data[i : i+1]), Column: i, Width: 1, Style: style, UnderlineColor: underline, Start: start + int64(i), End: start + int64(i) + 1}
+			}
+			return glyphs, nil
+		}
+	}
 	reader := content.NewGraphemeReader(t.source, start, end, style, true, underline)
 	cells := make([]Glyph, t.width)
 	cursor, extent := 0, 0

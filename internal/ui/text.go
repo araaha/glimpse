@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"glimpse/internal/content"
 	"glimpse/internal/pager"
@@ -40,6 +42,8 @@ type Text struct {
 	open                           *scanCheckpoint
 	observedEnd                    int64
 	wideAmbiguous, policyChanged   bool
+	exhausted, finalized           bool
+	renderScratch                  []byte
 }
 
 type scanCheckpoint struct {
@@ -83,6 +87,9 @@ func (t *Text) SetWideAmbiguous(wide bool) {
 	}
 }
 func (t *Text) clusterWidth(text string) int {
+	if len(text) == 1 && text[0] >= ' ' && text[0] <= '~' {
+		return 1
+	}
 	return (displaywidth.Options{EastAsianWidth: t.wideAmbiguous}).String(text)
 }
 
@@ -116,6 +123,8 @@ func (t *Text) reset(width int, base int64, initial content.Style, underline con
 	t.style = initial
 	t.underlineColor = underline
 	t.open, t.policyChanged = nil, false
+	t.exhausted, t.finalized = false, false
+	t.renderScratch = make([]byte, width+1)
 	t.struckWidth = 0
 	t.cellStarts = make([]int, width)
 	t.starts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
@@ -175,6 +184,24 @@ func (t *Text) recordStyle(offset int64, style content.Style, underline content.
 // complete allows an incomplete UTF-8 suffix at EOF to be shown as replacement
 // characters instead of waiting for further input.
 func (t *Text) Update(width int, complete bool) error {
+	return t.UpdateFor(width, complete, 0)
+}
+
+// NeedsUpdate distinguishes an unfinished index from a live partial UTF-8 or
+// control token that is waiting for new input (which must not busy-loop).
+func (t *Text) NeedsUpdate(width int, complete bool) bool {
+	base := int64(0)
+	if source, ok := t.source.(interface{ Start() int64 }); ok {
+		base = source.Start()
+	}
+	return t.width != max(1, width) || t.policyChanged || t.base != base || !t.exhausted || t.observedEnd != t.source.Len() || complete && !t.finalized
+}
+
+func (t *Text) Indexed() int64 { return t.scanned }
+
+// UpdateFor cooperatively yields at token boundaries. A zero budget indexes the
+// whole available snapshot, preserving Update's noninteractive/test API.
+func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 	width = max(1, width)
 	base := int64(0)
 	if source, ok := t.source.(interface{ Start() int64 }); ok {
@@ -206,9 +233,34 @@ func (t *Text) Update(width int, complete bool) error {
 		}
 	}
 	reader := content.NewGraphemeReader(t.source, t.scanned, end, t.style, complete, t.underlineColor)
+	var deadline time.Time
+	if budget > 0 {
+		deadline = time.Now().Add(budget)
+	}
+	steps := 0
+	t.exhausted, t.finalized = false, false
 	for {
+		if budget > 0 && steps >= 32 {
+			if !time.Now().Before(deadline) {
+				break
+			}
+			steps = 0
+		}
+		steps++
+		if run, ok := reader.ASCII(); ok {
+			if err := t.recordStyle(run.Start, run.Style, run.UnderlineColor); err != nil {
+				return err
+			}
+			if err := t.addASCII(run.Bytes, run.Start); err != nil {
+				return err
+			}
+			t.scanned = run.Start + int64(len(run.Bytes))
+			continue
+		}
 		token, err := reader.Next()
 		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) {
+			t.exhausted = true
+			t.finalized = complete
 			break
 		}
 		if err != nil {
@@ -231,6 +283,64 @@ func (t *Text) Update(width int, complete bool) error {
 		t.scanned = token.End
 	}
 	t.observedEnd = end
+	return nil
+}
+
+func (t *Text) LineCount() int {
+	if t.lineStarts == nil {
+		return 0
+	}
+	count := t.lineStarts.count
+	if count > 0 && t.lineStarts.at(count-1) == t.scanned {
+		count--
+	}
+	return count
+}
+
+func (t *Text) addASCII(data []byte, offset int64) error {
+	if t.struckWidth > 0 && len(data) > 0 {
+		if err := t.addCluster(content.Cluster{Token: content.Token{Rune: rune(data[0]), Start: offset, End: offset + 1}, Text: string(data[:1])}); err != nil {
+			return err
+		}
+		data, offset = data[1:], offset+1
+	}
+	for len(data) > 0 {
+		count := bytes.IndexByte(data, '\n')
+		if count < 0 {
+			count = len(data)
+		}
+		for count > 0 {
+			if t.column == t.width {
+				if err := t.starts.append(offset); err != nil {
+					return err
+				}
+				if err := t.rowStyles.append(int64(t.style)); err != nil {
+					return err
+				}
+				if err := t.rowUnderlines.append(int64(t.underlineColor)); err != nil {
+					return err
+				}
+				t.column = 0
+			}
+			n := min(count, t.width-t.column)
+			// Only the final row of this run can be edited by a later CR/BS.
+			// Intermediate full rows are immutable, so don't rewrite one cell
+			// checkpoint per byte just to overwrite it on the next wrapped row.
+			if count == n {
+				for cell := t.column; cell < t.column+n; cell++ {
+					t.cellStarts[cell] = cell
+				}
+			}
+			t.column += n
+			data, offset, count = data[n:], offset+int64(n), count-n
+		}
+		if len(data) > 0 && data[0] == '\n' {
+			if err := t.addCluster(content.Cluster{Token: content.Token{Rune: '\n', Start: offset, End: offset + 1}, Text: "\n"}); err != nil {
+				return err
+			}
+			data, offset = data[1:], offset+1
+		}
+	}
 	return nil
 }
 

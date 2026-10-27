@@ -25,6 +25,9 @@ func (t *Terminal) Render(frame Frame) error {
 		if y >= frame.Layout.Body.Height {
 			break
 		}
+		if y < len(frame.Styled) {
+			continue
+		}
 		t.screen.PutStr(0, y, line)
 	}
 	for row, glyphs := range frame.Styled {

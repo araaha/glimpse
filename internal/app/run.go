@@ -15,6 +15,7 @@ import (
 )
 
 const sequenceTimeout = 90 * time.Millisecond
+const indexSlice = 2 * time.Millisecond
 
 // Run owns input and the terminal until quit, cancellation, or an error. Closing
 // input must unblock a pending Read (as it does for files and pipes).
@@ -54,6 +55,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 
 	tick := time.NewTicker(time.Second / 60)
 	defer tick.Stop()
+	indexWork := time.NewTimer(0)
+	defer indexWork.Stop()
 	text, err := ui.NewTextWithLimits(a.Document, a.metadataBudget, a.metadataQuota)
 	if err != nil {
 		return err
@@ -65,21 +68,63 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	view := viewState{follow: a.follow}
 	reading, dirty := true, true
 	var previousLength int64 = -1
+	previousRows, indexedWidth := 0, 0
+	var previousIndexed int64 = -1
+	pendingLine := 0
+	var pendingOffset int64
+	hasPendingOffset, wantBottom := false, false
 	previousPaused := false
 	var deadline time.Time
 	pasting := false
 	layout := a.UI.Layout(screen.Size())
+	updateText := func() error {
+		anchor := text.Offset(view.top)
+		reflow := indexedWidth != layout.Body.Width
+		if reflow && indexedWidth != 0 && pendingLine == 0 && !hasPendingOffset {
+			pendingOffset, hasPendingOffset = anchor, true
+		}
+		if text.NeedsUpdate(layout.Body.Width, !reading) {
+			if err := text.UpdateFor(layout.Body.Width, !reading, indexSlice); err != nil {
+				return err
+			}
+			indexedWidth = layout.Body.Width
+			if reflow {
+				view.top = text.RowAt(anchor)
+			}
+			dirty = true
+		}
+		pending := text.NeedsUpdate(layout.Body.Width, !reading)
+		if pendingLine > 0 && (pendingLine <= text.LineCount() || !pending) {
+			view.top = text.LineRow(pendingLine)
+			pendingLine = 0
+		}
+		if hasPendingOffset && (pendingOffset < text.Indexed() || !pending) {
+			view.top = text.RowAt(pendingOffset)
+			hasPendingOffset = false
+		}
+		if wantBottom {
+			view.bottom = true
+			if !pending {
+				wantBottom = false
+			}
+		}
+		return nil
+	}
+	scheduleIndex := func() {
+		if text.NeedsUpdate(layout.Body.Width, !reading) {
+			indexWork.Reset(0)
+		}
+	}
 
 	draw := func(length int64) error {
-		anchor := text.Offset(view.top)
-		previousRows := text.RowCount()
 		paused, discarded := a.Document.Paused(), a.Document.Start()
 		a.UI.SetSearchVisible(search.prompt != nil || search.message != "" || paused || discarded > 0)
 		layout = a.UI.Layout(screen.Size())
-		if err := text.Update(layout.Body.Width, !reading); err != nil {
+		if err := updateText(); err != nil {
 			return err
 		}
-		view.reflow(text.RowAt(anchor), text.RowCount(), layout.Body.Height, length != previousLength || text.RowCount() != previousRows)
+		anchor := text.Offset(view.top)
+		view.reflow(text.RowAt(anchor), text.RowCount(), layout.Body.Height, length != previousLength || text.RowCount() != previousRows || text.Indexed() != previousIndexed)
 		lines, err := text.Lines(view.top, layout.Body.Height)
 		if err != nil {
 			if errors.Is(err, pager.ErrEvicted) {
@@ -93,6 +138,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		if view.follow {
 			state += "  FOLLOW"
+		}
+		if text.NeedsUpdate(layout.Body.Width, !reading) {
+			state += "  indexing"
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
 		frame := ui.Frame{Layout: layout, Lines: lines, Styled: text.Styled(), Status: status, Search: search.message, WideAmbiguous: a.wideAmbiguous}
@@ -121,7 +169,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return err
 		}
 		previousLength = length
+		previousRows, previousIndexed = text.RowCount(), text.Indexed()
 		previousPaused = paused
+		scheduleIndex()
 		return nil
 	}
 	var applyPrompt func([]keybind.Command) (bool, error)
@@ -131,6 +181,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		// pending input now belongs to a new command and must be preserved.
 		for i := len(actions) - 1; i >= 0; i-- {
 			if actions[i].Action == keybind.Cancel {
+				pendingLine, hasPendingOffset, wantBottom = 0, false, false
 				search.stop()
 				search.message = ""
 				dirty = true
@@ -142,6 +193,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			action := command.Action
 			switch action {
 			case keybind.SearchForward, keybind.SearchBackward, keybind.CommandInput:
+				pendingLine, hasPendingOffset, wantBottom = 0, false, false
 				search.begin(action == keybind.SearchBackward)
 				if action == keybind.CommandInput {
 					search.prompt = newPrompt(false, search.commandHistory.Entries)
@@ -159,6 +211,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				dirty = true
 				return false, nil
 			case keybind.SearchNext, keybind.SearchPrevious:
+				pendingLine, hasPendingOffset, wantBottom = 0, false, false
 				if search.query == "" {
 					search.message = "No previous search"
 				} else {
@@ -186,15 +239,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if action == keybind.ToggleStatus {
 				a.UI.ToggleStatusline()
 			} else if action == keybind.Bottom && command.Count > 0 {
-				// Include bytes that arrived since the most recent frame before
-				// resolving a logical line number in a live stream.
-				if err := text.Update(layout.Body.Width, !reading); err != nil {
-					return false, err
-				}
-				view.top = text.LineRow(command.Count)
+				pendingLine, hasPendingOffset, wantBottom = command.Count, false, false
 				view.follow, view.bottom = false, false
 			} else {
+				pendingLine, hasPendingOffset, wantBottom = 0, false, false
 				view.apply(action, text.RowCount(), layout.Body.Height)
+				if action == keybind.Bottom {
+					wantBottom = text.NeedsUpdate(layout.Body.Width, !reading)
+				}
 			}
 			search.stop()
 			search.matched, search.message = false, ""
@@ -207,6 +259,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if p == nil || p.command || !a.IncrementalSearch {
 			return
 		}
+		pendingLine, hasPendingOffset, wantBottom = 0, false, false
 		search.stop()
 		query := string(p.text)
 		if query == "" {
@@ -232,6 +285,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			switch command.Action {
 			case keybind.SearchCancel:
+				pendingLine, hasPendingOffset, wantBottom = 0, false, false
 				search.stop()
 				view.top = text.RowAt(search.prompt.origin)
 				search.query, search.backward = search.original.query, search.original.backward
@@ -257,13 +311,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 						search.message = result.message
 						if result.line > 0 {
 							search.matched = false
-							if err := text.Update(layout.Body.Width, !reading); err != nil {
-								return false, err
-							}
-							view.top = text.LineRow(result.line)
+							pendingLine, hasPendingOffset, wantBottom = result.line, false, false
 						} else if result.action != "" {
 							search.matched = false
+							pendingLine, hasPendingOffset, wantBottom = 0, false, false
 							view.apply(result.action, text.RowCount(), layout.Body.Height)
+							if result.action == keybind.Bottom {
+								wantBottom = text.NeedsUpdate(layout.Body.Width, !reading)
+							}
 						}
 						if query != "" {
 							if err := search.commandHistory.Add(query); err != nil {
@@ -338,6 +393,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-indexWork.C:
+			if err := updateText(); err != nil {
+				return err
+			}
+			scheduleIndex()
 		case err := <-result:
 			result = nil
 			reading, dirty = false, true
@@ -360,11 +420,12 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				search.message = "Pattern not found: " + search.query
 				search.matched = false
 			} else {
-				if err := text.Update(layout.Body.Width, !reading); err != nil {
-					return err
-				}
 				search.match, search.matched = response.result.Offset, true
-				view.top = text.RowAt(search.match)
+				pendingOffset, hasPendingOffset, pendingLine, wantBottom = search.match, true, 0, false
+				if search.match < text.Indexed() {
+					view.top = text.RowAt(search.match)
+					hasPendingOffset = false
+				}
 				view.follow, view.bottom = false, false
 				search.message = "/" + search.query
 				if search.backward {
