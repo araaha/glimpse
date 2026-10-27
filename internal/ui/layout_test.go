@@ -14,6 +14,7 @@ func TestLayout(t *testing.T) {
 		searchRow int
 	}{
 		{"toggle starts visible", CmdHeightToggle, 80, 24, 80, 23, 23, -1},
+		{"hidden toggle starts hidden", CmdHeightToggleHidden, 80, 24, 80, 24, -1, -1},
 		{"mode zero reserves status row", CmdHeightStatusOnly, 80, 24, 80, 23, 23, -1},
 		{"status above search", CmdHeightWithSearch, 80, 24, 80, 22, 22, 23},
 		{"only footer fits", CmdHeightWithSearch, 80, 2, 80, 0, 0, 1},
@@ -64,6 +65,25 @@ func TestToggleStatusline(t *testing.T) {
 	}
 }
 
+func TestHiddenToggleStatusline(t *testing.T) {
+	model, err := NewModel(CmdHeightToggleHidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.CmdHeight() != CmdHeightToggle {
+		t.Fatalf("CmdHeight() = %d, want the shared-row mode", model.CmdHeight())
+	}
+	model.SetSearchVisible(true)
+	if got := model.Layout(80, 24); got.SearchRow != 23 || got.StatusRow != -1 || got.Body.Height != 23 {
+		t.Fatalf("prompt layout = %+v", got)
+	}
+	model.SetSearchVisible(false)
+	model.ToggleStatusline()
+	if got := model.Layout(80, 24); got.StatusRow != 23 || got.Body.Height != 23 {
+		t.Fatalf("toggled-on layout = %+v", got)
+	}
+}
+
 func TestLayoutAfterResize(t *testing.T) {
 	model, err := NewModel(CmdHeightWithSearch)
 	if err != nil {
@@ -77,7 +97,7 @@ func TestLayoutAfterResize(t *testing.T) {
 }
 
 func TestNewModelRejectsInvalidCmdHeight(t *testing.T) {
-	for _, mode := range []CmdHeight{-2, 2, 100} {
+	for _, mode := range []CmdHeight{-3, 2, 100} {
 		if model, err := NewModel(mode); model != nil || err == nil {
 			t.Fatalf("NewModel(%d) = (%v, %v), want (nil, error)", mode, model, err)
 		}

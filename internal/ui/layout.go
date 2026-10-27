@@ -6,6 +6,8 @@ import "fmt"
 type CmdHeight int
 
 const (
+	// CmdHeightToggleHidden is CmdHeightToggle with the statusline initially hidden.
+	CmdHeightToggleHidden CmdHeight = -2
 	// CmdHeightToggle reserves a status row that can be hidden in the view.
 	CmdHeightToggle CmdHeight = -1
 	// CmdHeightStatusOnly reserves a status row and adds a prompt row on demand.
@@ -17,13 +19,13 @@ const (
 	DefaultCmdHeight = CmdHeightStatusOnly
 )
 
-// Validate rejects modes other than -1, 0, and 1.
+// Validate rejects modes other than -2, -1, 0, and 1.
 func (h CmdHeight) Validate() error {
 	switch h {
-	case CmdHeightToggle, CmdHeightStatusOnly, CmdHeightWithSearch:
+	case CmdHeightToggleHidden, CmdHeightToggle, CmdHeightStatusOnly, CmdHeightWithSearch:
 		return nil
 	default:
-		return fmt.Errorf("cmdheight must be -1, 0, or 1 (got %d)", h)
+		return fmt.Errorf("cmdheight must be -2, -1, 0, or 1 (got %d)", h)
 	}
 }
 
@@ -39,10 +41,14 @@ type Model struct {
 // status; mode -1 replaces status; mode 1 always reserves both rows.
 func (m *Model) SetSearchVisible(visible bool) { m.searchVisible = visible }
 
-// NewModel creates a view with its statusline visible in every mode.
+// NewModel creates a view with its statusline visible, except in mode -2, which
+// becomes mode -1 with the statusline hidden until toggled.
 func NewModel(cmdHeight CmdHeight) (*Model, error) {
 	if err := cmdHeight.Validate(); err != nil {
 		return nil, err
+	}
+	if cmdHeight == CmdHeightToggleHidden {
+		return &Model{cmdHeight: CmdHeightToggle}, nil
 	}
 	return &Model{cmdHeight: cmdHeight, statusVisible: true}, nil
 }

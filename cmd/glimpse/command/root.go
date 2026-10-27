@@ -122,7 +122,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
 	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
 	root.Flags().StringP("jump-target", "j", "1", "screen line for search matches and line jumps: 1 is the top, -1 the bottom, .5 the middle")
-	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
+	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -2 like -1 with the statusline initially hidden, -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
 	return root
 }
 
