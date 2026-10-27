@@ -164,6 +164,9 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse search.highlight: %w", err)
 	}
 	options.NoSearchHighlight = !highlight
+	if err := readAppearance(config, &options); err != nil {
+		return app.Options{}, err
+	}
 	// Treat the case settings as one mode: an enabled flag outranks environment
 	// modes, which outrank TOML modes. At the same tier, explicit sensitivity wins
 	// over smart case, which wins over unconditional case folding.
