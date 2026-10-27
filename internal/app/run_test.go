@@ -21,9 +21,10 @@ import (
 )
 
 type testViewer struct {
-	screen tcell.Screen
-	frames <-chan ui.Frame
-	result <-chan error
+	screen  tcell.Screen
+	frames  <-chan ui.Frame
+	result  <-chan error
+	release func()
 }
 
 func startTestViewer(t *testing.T, options Options, input string, width, height int) testViewer {
@@ -60,10 +61,14 @@ func startTestViewer(t *testing.T, options Options, input string, width, height 
 }
 
 func (v testViewer) press(keys ...string) {
+	if v.release != nil {
+		defer v.release()
+	}
 	for _, key := range keys {
 		code, named := map[string]tcell.Key{
 			"<Esc>": tcell.KeyEsc, "<Enter>": tcell.KeyEnter, "<Up>": tcell.KeyUp, "<Down>": tcell.KeyDown,
 			"<Left>": tcell.KeyLeft, "<Right>": tcell.KeyRight, "<Backspace>": tcell.KeyBackspace2,
+			"<End>": tcell.KeyEnd,
 			"<C-w>": tcell.KeyCtrlW, "<C-a>": tcell.KeyCtrlA, "<C-e>": tcell.KeyCtrlE, "<C-u>": tcell.KeyCtrlU,
 		}[key]
 		if named {

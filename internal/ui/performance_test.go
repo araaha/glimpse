@@ -1,11 +1,35 @@
 package ui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"glimpse/internal/pager"
 )
+
+func BenchmarkSampleIndex(b *testing.B) {
+	path := os.Getenv("GLIMPSE_BENCH_FILE")
+	if path == "" {
+		b.Skip("set GLIMPSE_BENCH_FILE to benchmark an external sample")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	source := benchmarkSource{strings.NewReader(string(data))}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(data)))
+	for b.Loop() {
+		text := NewText(source)
+		if err := text.Update(100, true); err != nil {
+			b.Fatal(err)
+		}
+		if err := text.Close(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 type benchmarkSource struct{ *strings.Reader }
 

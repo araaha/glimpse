@@ -49,8 +49,8 @@ func (r *GraphemeReader) SetRenderState(width, column, extent int, wide bool) {
 	r.checkedFull = false
 }
 
-// ASCII batches only proven one-cell graphemes and newlines. It deliberately
-// leaves the last printable byte for Next, retaining Unicode boundary semantics.
+// ASCII batches only proven one-cell graphemes and newlines. A final printable
+// byte stays on Next unless buffered lookahead proves its grapheme boundary.
 // Bytes is valid until the next reader operation.
 func (r *GraphemeReader) ASCII() (ASCIIRun, bool) {
 	if r.dataStart < len(r.data) {
@@ -84,6 +84,23 @@ func (r *GraphemeReader) ASCII() (ASCIIRun, bool) {
 	}
 	if r.eof {
 		return ASCIIRun{}, false
+	}
+	// At a proven grapheme boundary, ordinary SGR can be decoded without
+	// prefetching a batch of visible runes. Keep Unicode/other controls on Next.
+	for {
+		if r.reader.reader.Buffered() == 0 {
+			r.reader.reader.Peek(1)
+		}
+		data, _ := r.reader.reader.Peek(r.reader.reader.Buffered())
+		n := sgrPrefix(data)
+		if n == 0 {
+			break
+		}
+		token, err := r.reader.Next()
+		if err != nil {
+			break
+		}
+		r.lastEnd, r.lastStyle, r.lastUnderlineColor = token.End, token.Style, token.UnderlineColor
 	}
 	run, ok := r.reader.ascii()
 	if ok {
@@ -152,6 +169,12 @@ func (r *GraphemeReader) fill(target int) error {
 		r.encoded += int64(utf8.RuneLen(token.Rune))
 		r.tokens = append(r.tokens, token)
 		r.ends = append(r.ends, r.encoded)
+		// Two leading ASCII bytes prove the first grapheme boundary. Stop
+		// lookahead here so styling near an ASCII run does not force the next
+		// 256 characters through per-rune decoding instead of ASCII batching.
+		if len(r.data) >= 2 && r.data[0] < utf8.RuneSelf && r.data[1] < utf8.RuneSelf {
+			break
+		}
 	}
 	return nil
 }

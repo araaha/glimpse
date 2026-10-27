@@ -38,6 +38,8 @@ func TestASCIIBatchingPreservesGraphemeAndStyleBoundaries(t *testing.T) {
 		strings.Repeat("a", 4095) + "\x1b[31ḿb\x1b[0m",
 		"a\x1b[4;58:5:196mbc\x1b[59m d\t\r\b_\n\x1b[0m",
 		"abc\xe7", "abc\x1b[31", "abc\x00def", "abc\n\x1b[31m",
+		strings.Repeat("\x1b[31mred\x1b[m plain\n", 100) + "e\x1b[32ḿ\x1b[m\n",
+		"a\x1b[31m\b_b\x1b[m\bc\n\x1b[58:5:196mend\x1b[59m",
 	} {
 		for _, complete := range []bool{false, true} {
 			got, want := decodedClusters(t, input, true, complete), decodedClusters(t, input, false, complete)

@@ -44,6 +44,7 @@ type Text struct {
 	wideAmbiguous, policyChanged   bool
 	exhausted, finalized           bool
 	renderScratch                  []byte
+	trackStyles                    bool
 }
 
 type scanCheckpoint struct {
@@ -102,7 +103,11 @@ func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
 	if memory < 16<<10 || quota < 56 {
 		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 56 bytes")
 	}
-	return &Text{source: source, indexMemory: memory, indexQuota: quota}, nil
+	_, trackStyles := source.(interface{ Start() int64 })
+	if retained, ok := source.(interface{ RetainsAll() bool }); ok && retained.RetainsAll() {
+		trackStyles = false
+	}
+	return &Text{source: source, indexMemory: memory, indexQuota: quota, trackStyles: trackStyles}, nil
 }
 
 func (t *Text) Close() error {
@@ -167,6 +172,13 @@ func (t *Text) recordStyle(offset int64, style content.Style, underline content.
 	if style == t.style && underline == t.underlineColor {
 		return nil
 	}
+	// Per-transition history is only needed to recover colors after rolling
+	// eviction. Lossless input is reread from its original base on reflow;
+	// wrapped-row checkpoints already preserve all rendering styles.
+	if !t.trackStyles {
+		t.style, t.underlineColor = style, underline
+		return nil
+	}
 	if err := t.styleOffsets.append(offset); err != nil {
 		return err
 	}
@@ -198,6 +210,17 @@ func (t *Text) NeedsUpdate(width int, complete bool) bool {
 }
 
 func (t *Text) Indexed() int64 { return t.scanned }
+
+// SearchAnchor supplies a decoded restart boundary near origin. Rewinding some
+// logical lines makes backward repeats cheap without starting inside hidden
+// controls, UTF-8, or a wrapped man-page overstrike sequence.
+func (t *Text) SearchAnchor(origin int64) int64 {
+	if t.lineStarts == nil {
+		return t.base
+	}
+	line := max(0, sort.Search(t.lineStarts.count, func(i int) bool { return t.lineStarts.at(i) > origin })-1)
+	return t.lineStarts.at(max(0, line-32))
+}
 
 // UpdateFor cooperatively yields at token boundaries. A zero budget indexes the
 // whole available snapshot, preserving Update's noninteractive/test API.

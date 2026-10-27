@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,21 @@ import (
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/vt"
 )
+
+type gatedBottomRenderer struct {
+	*recordingRenderer
+	gate  <-chan struct{}
+	first bool
+}
+
+func (r *gatedBottomRenderer) Render(frame ui.Frame) error {
+	err := r.recordingRenderer.Render(frame)
+	if r.first {
+		r.first = false
+		<-r.gate
+	}
+	return err
+}
 
 // Preload a styled input that takes many indexing slices, without relying on
 // ingestion speed or an external file. Keep the pipe open to exercise live EOF.
@@ -23,7 +39,7 @@ func startBottomViewer(t *testing.T, options Options, tail string) (testViewer, 
 		t.Fatal(err)
 	}
 	var input strings.Builder
-	for i := range 50000 {
+	for i := range 200000 {
 		fmt.Fprintf(&input, "\x1b[32mrow%06d\x1b[m\n", i)
 	}
 	input.WriteString(tail)
@@ -35,7 +51,10 @@ func startBottomViewer(t *testing.T, options Options, tail string) (testViewer, 
 		t.Fatal(err)
 	}
 	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 256)}
-	application.Renderer = recorder
+	gate := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(gate) }) }
+	application.Renderer = &gatedBottomRenderer{recordingRenderer: recorder, gate: gate, first: true}
 	inputPipe, writer := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	result, stopped := make(chan error, 1), make(chan struct{})
@@ -45,6 +64,7 @@ func startBottomViewer(t *testing.T, options Options, tail string) (testViewer, 
 	}()
 	t.Cleanup(func() {
 		cancel()
+		release()
 		writer.Close()
 		select {
 		case <-stopped:
@@ -56,7 +76,7 @@ func startBottomViewer(t *testing.T, options Options, tail string) (testViewer, 
 	if !strings.Contains(frame.Status, "indexing") {
 		t.Fatal("test input fully indexed before jump; did not exercise deferred G")
 	}
-	return testViewer{screen: screen, frames: recorder.frames, result: result}, writer
+	return testViewer{screen: screen, frames: recorder.frames, result: result, release: release}, writer
 }
 
 func TestRunBottomPaintsOnlyDestination(t *testing.T) {
@@ -80,7 +100,7 @@ func TestRunBottomPaintsOnlyDestination(t *testing.T) {
 			}
 			switch binding {
 			case "<End>":
-				viewer.screen.EventQ() <- tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone)
+				viewer.press("<End>")
 			case ":bottom":
 				viewer.press(":", "bottom", "<Enter>")
 			case "rebound":

@@ -57,7 +57,10 @@ func NewDocumentWithOptions(chunkSize int, options StorageOptions) (*Document, e
 	return &Document{data: store}, nil
 }
 
-func (d *Document) Start() int64               { return d.data.Start() }
+func (d *Document) Start() int64 { return d.data.Start() }
+
+// RetainsAll reports whether old bytes remain readable for the document's life.
+func (d *Document) RetainsAll() bool           { return d.data.options.Retention != "rolling" }
 func (d *Document) MemoryBytes() int64         { return d.data.MemoryBytes() }
 func (d *Document) Paused() bool               { return d.data.Paused() }
 func (d *Document) SetQuota(quota int64) error { return d.data.SetQuota(quota) }

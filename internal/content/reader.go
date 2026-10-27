@@ -40,6 +40,42 @@ func asciiPrefix(data []byte) int {
 	return n
 }
 
+// sgrPrefix recognizes a complete buffered SGR without consuming it. Other
+// controls, incomplete sequences, and Unicode go through the general decoder.
+func sgrPrefix(data []byte) int {
+	if len(data) < 3 || data[0] != 0x1b || data[1] != '[' {
+		return 0
+	}
+	for i := 2; i < len(data) && i < 4098; i++ {
+		b := data[i]
+		if b >= 0x40 && b <= 0x7e {
+			if b == 'm' {
+				return i + 1
+			}
+			return 0
+		}
+		if b < 0x20 || b > 0x3f {
+			return 0
+		}
+	}
+	return 0
+}
+
+func asciiBoundary(data []byte) bool {
+	for len(data) > 0 {
+		b := data[0]
+		if b >= ' ' && b <= '~' || b == '\n' || b == '\r' || b == '\t' {
+			return true
+		}
+		n := sgrPrefix(data)
+		if n == 0 {
+			break
+		}
+		data = data[n:]
+	}
+	return false
+}
+
 func (r *Reader) ascii() (ASCIIRun, bool) {
 	if r.reader.Buffered() == 0 {
 		if _, err := r.reader.Peek(1); err != nil {
@@ -51,6 +87,9 @@ func (r *Reader) ascii() (ASCIIRun, bool) {
 	}
 	data, _ := r.reader.Peek(r.reader.Buffered())
 	n := asciiPrefix(data)
+	if n < len(data) && data[n] >= ' ' && data[n] <= '~' && asciiBoundary(data[n+1:]) {
+		n++ // A buffered SGR followed by ASCII cannot extend this grapheme.
+	}
 	if n == 0 {
 		return ASCIIRun{}, false
 	}
@@ -59,6 +98,11 @@ func (r *Reader) ascii() (ASCIIRun, bool) {
 	r.offset += int64(n)
 	return run, true
 }
+
+// ASCII returns a contiguous run without decoding individual tokens. Buffered
+// lookahead must prove the last byte cannot join a grapheme or an overstrike.
+// Bytes remains valid only until the next reader operation.
+func (r *Reader) ASCII() (ASCIIRun, bool) { return r.ascii() }
 
 // Reader limits control sequences to 4096 bytes. Malformed or oversized input
 // falls back to visible replacement text; it can never reach the real terminal
@@ -69,6 +113,15 @@ type Reader struct {
 	style          Style
 	complete       bool
 	underlineColor Color
+	ignoreStyles   bool
+}
+
+// NewPlainReader preserves token boundaries and safe control suppression but
+// skips SGR style parsing, for consumers interested only in searchable text.
+func NewPlainReader(source io.ReaderAt, start, end int64) *Reader {
+	r := NewReader(source, start, end, 0, true)
+	r.ignoreStyles = true
+	return r
 }
 
 func NewReader(source io.ReaderAt, start, end int64, style Style, complete bool, underline ...Color) *Reader {
@@ -84,6 +137,17 @@ func (r *Reader) Next() (Token, error) {
 	peek, err := r.reader.Peek(1)
 	if err != nil {
 		return Token{}, err
+	}
+	if peek[0] == 0x1b {
+		data, _ := r.reader.Peek(r.reader.Buffered())
+		if n := sgrPrefix(data); n > 0 {
+			if !r.ignoreStyles && n-3 <= 512 {
+				r.style, r.underlineColor = sgrBytes(r.style, r.underlineColor, data[2:n-1])
+			}
+			r.reader.Discard(n)
+			r.offset += int64(n)
+			return Token{Start: start, End: r.offset, Style: r.style, Hidden: true, UnderlineColor: r.underlineColor}, nil
+		}
 	}
 	if peek[0] >= utf8.RuneSelf && !r.complete {
 		prefix, _ := r.reader.Peek(utf8.UTFMax)
@@ -145,7 +209,7 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			}
 			r.offset++
 			if b >= 0x40 && b <= 0x7e {
-				if b == 'm' && parameters.Len() <= 512 {
+				if !r.ignoreStyles && b == 'm' && parameters.Len() <= 512 {
 					r.style, r.underlineColor = sgr(r.style, r.underlineColor, parameters.String())
 				}
 				return hidden()
@@ -153,7 +217,7 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			if b < 0x20 || b > 0x3f {
 				return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 			}
-			if parameters.Len() < 513 {
+			if !r.ignoreStyles && parameters.Len() < 513 {
 				parameters.WriteByte(b)
 			}
 		}

@@ -4,10 +4,33 @@ import (
 	"errors"
 	"glimpse/internal/pager"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode"
 )
+
+func TestPlainReaderPreservesTokenBoundaries(t *testing.T) {
+	for _, input := range []string{
+		"abc\x1b[31mred\x1b[m\n_\bu σ\x1b]52;hidden\ntext\aend",
+		strings.Repeat("x", 4094) + "\x1b[38:2::1:2:3m彩\x1b[m\xff\x1b[31",
+	} {
+		source := strings.NewReader(input)
+		normal := NewReader(source, 0, int64(len(input)), 0, true)
+		plain := NewPlainReader(source, 0, int64(len(input)))
+		for {
+			want, wantErr := normal.Next()
+			got, gotErr := plain.Next()
+			want.Style, want.UnderlineColor = 0, 0
+			if !reflect.DeepEqual(got, want) || gotErr != wantErr {
+				t.Fatalf("plain token %+v, %v; want %+v, %v", got, gotErr, want, wantErr)
+			}
+			if wantErr == io.EOF {
+				break
+			}
+		}
+	}
+}
 
 func tokens(t *testing.T, input string) []Token {
 	t.Helper()

@@ -81,74 +81,109 @@ func sgr(style Style, underline Color, parameters string) (Style, Color) {
 	if parameters == "" {
 		return 0, 0
 	}
-	values, valid := sgrValues(parameters)
-	if !valid {
-		return style, underline
+	var single [1]int
+	var values []int
+	if len(parameters) <= 3 && !strings.ContainsAny(parameters, ";:") {
+		n, err := strconv.Atoi(parameters)
+		if err != nil || n < 0 {
+			return style, underline
+		}
+		single[0], values = n, single[:]
+	} else {
+		var valid bool
+		values, valid = sgrValues(parameters)
+		if !valid {
+			return style, underline
+		}
 	}
 	for i := 0; i < len(values); i++ {
 		value := values[i]
-		switch {
-		case value == 0:
-			style, underline = 0, 0
-		case value == 1:
-			style |= Bold
-		case value == 2:
-			style |= Dim
-		case value == 3:
-			style |= Italic
-		case value == 4:
-			style |= Underline
-		case value == 7:
-			style |= Reverse
-		case value == 9:
-			style |= Strike
-		case value == 22:
-			style &^= Bold | Dim
-		case value == 23:
-			style &^= Italic
-		case value == 24:
-			style &^= Underline
-		case value == 27:
-			style &^= Reverse
-		case value == 29:
-			style &^= Strike
-		case value == 39:
-			style &^= colorMask
-		case value == 49:
-			style &^= colorMask << 25
-		case value == 59:
-			underline = 0
-		case value >= 30 && value <= 37:
-			style = style.color(indexedColor(value-30), false)
-		case value >= 40 && value <= 47:
-			style = style.color(indexedColor(value-40), true)
-		case value >= 90 && value <= 97:
-			style = style.color(indexedColor(value-90+8), false)
-		case value >= 100 && value <= 107:
-			style = style.color(indexedColor(value-100+8), true)
-		case value == 38 || value == 48 || value == 58:
-			applyColor := func(color Color) {
-				if value == 58 {
-					underline = color
-				} else {
-					style = style.color(color, value == 48)
-				}
-			}
-			if i+2 < len(values) && values[i+1] == 5 {
-				if values[i+2] <= 255 {
-					applyColor(indexedColor(values[i+2]))
-				}
-				i += 2
-			} else if i+4 < len(values) && values[i+1] == 2 {
-				r, g, b := values[i+2], values[i+3], values[i+4]
-				if r <= 255 && g <= 255 && b <= 255 {
-					applyColor(Color(r<<16|g<<8|b) + 1)
-				}
-				i += 4
+		if value != 38 && value != 48 && value != 58 {
+			style, underline = sgrBasic(style, underline, value)
+			continue
+		}
+		applyColor := func(color Color) {
+			if value == 58 {
+				underline = color
 			} else {
-				return style, underline
+				style = style.color(color, value == 48)
 			}
 		}
+		if i+2 < len(values) && values[i+1] == 5 {
+			if values[i+2] <= 255 {
+				applyColor(indexedColor(values[i+2]))
+			}
+			i += 2
+		} else if i+4 < len(values) && values[i+1] == 2 {
+			r, g, b := values[i+2], values[i+3], values[i+4]
+			if r <= 255 && g <= 255 && b <= 255 {
+				applyColor(Color(r<<16|g<<8|b) + 1)
+			}
+			i += 4
+		} else {
+			return style, underline
+		}
+	}
+	return style, underline
+}
+
+func sgrBytes(style Style, underline Color, parameters []byte) (Style, Color) {
+	if len(parameters) == 0 {
+		return 0, 0
+	}
+	if len(parameters) <= 3 {
+		value := 0
+		for _, b := range parameters {
+			if b < '0' || b > '9' {
+				return sgr(style, underline, string(parameters))
+			}
+			value = value*10 + int(b-'0')
+		}
+		return sgrBasic(style, underline, value)
+	}
+	return sgr(style, underline, string(parameters))
+}
+
+func sgrBasic(style Style, underline Color, value int) (Style, Color) {
+	switch {
+	case value == 0:
+		style, underline = 0, 0
+	case value == 1:
+		style |= Bold
+	case value == 2:
+		style |= Dim
+	case value == 3:
+		style |= Italic
+	case value == 4:
+		style |= Underline
+	case value == 7:
+		style |= Reverse
+	case value == 9:
+		style |= Strike
+	case value == 22:
+		style &^= Bold | Dim
+	case value == 23:
+		style &^= Italic
+	case value == 24:
+		style &^= Underline
+	case value == 27:
+		style &^= Reverse
+	case value == 29:
+		style &^= Strike
+	case value == 39:
+		style &^= colorMask
+	case value == 49:
+		style &^= colorMask << 25
+	case value == 59:
+		underline = 0
+	case value >= 30 && value <= 37:
+		style = style.color(indexedColor(value-30), false)
+	case value >= 40 && value <= 47:
+		style = style.color(indexedColor(value-40), true)
+	case value >= 90 && value <= 97:
+		style = style.color(indexedColor(value-90+8), false)
+	case value >= 100 && value <= 107:
+		style = style.color(indexedColor(value-100+8), true)
 	}
 	return style, underline
 }
