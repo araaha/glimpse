@@ -8,7 +8,7 @@ type CmdHeight int
 const (
 	// CmdHeightToggle reserves a status row that can be hidden in the view.
 	CmdHeightToggle CmdHeight = -1
-	// CmdHeightStatusOnly starts without a status row; the view action toggles it.
+	// CmdHeightStatusOnly reserves one shared status/prompt row.
 	CmdHeightStatusOnly CmdHeight = 0
 
 	// CmdHeightWithSearch reserves a status row above a separate search row.
@@ -39,19 +39,18 @@ type Model struct {
 // In modes 0/-1 it replaces the status row; mode 1 keeps both separate rows.
 func (m *Model) SetSearchVisible(visible bool) { m.searchVisible = visible }
 
-// NewModel creates a view. Mode 0 starts with the statusline hidden; modes -1
-// and 1 start with it visible.
+// NewModel creates a view with its statusline visible in every mode.
 func NewModel(cmdHeight CmdHeight) (*Model, error) {
 	if err := cmdHeight.Validate(); err != nil {
 		return nil, err
 	}
-	return &Model{cmdHeight: cmdHeight, statusVisible: cmdHeight != CmdHeightStatusOnly}, nil
+	return &Model{cmdHeight: cmdHeight, statusVisible: true}, nil
 }
 
-// ToggleStatusline changes visibility in modes -1 and 0. Mode 1 always keeps
-// its status row above the separate search row.
+// ToggleStatusline only changes visibility in mode -1. Modes 0 and 1 always
+// reserve their footer rows, except when no terminal space is available.
 func (m *Model) ToggleStatusline() {
-	if m.cmdHeight != CmdHeightWithSearch {
+	if m.cmdHeight == CmdHeightToggle {
 		m.statusVisible = !m.statusVisible
 	}
 }

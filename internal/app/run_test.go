@@ -275,7 +275,7 @@ func TestRunPasteDoesNotExecuteBindings(t *testing.T) {
 
 func TestRunBackwardPreviewAcceptUsesOriginalOrigin(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	viewer := startTestViewer(t, Options{IncrementalSearch: true}, "first hit\ngap\nsecond hit\nlast\nend", 20, 2)
+	viewer := startTestViewer(t, Options{IncrementalSearch: true}, "first hit\ngap\nsecond hit\nlast\nend", 20, 3)
 	viewer.press("G")
 	waitFrame(t, viewer.frames, firstFrameLine("last"))
 	viewer.press("?")
@@ -603,7 +603,7 @@ func TestRunCancelDiscardsShorterAmbiguousAction(t *testing.T) {
 }
 
 func TestRunAmbiguousBindingTimesOut(t *testing.T) {
-	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"up": {"g"}}}, "one\ntwo\nthree\nfour", 8, 2)
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"up": {"g"}}}, "one\ntwo\nthree\nfour", 8, 3)
 	viewer.press("G")
 	waitFrame(t, viewer.frames, firstFrameLine("three"))
 	viewer.press("g")
@@ -627,7 +627,7 @@ func TestRunCountedGotoLogicalLine(t *testing.T) {
 		{"ambiguous", Options{Keybinds: map[string][]string{"bottom": {"g"}}}, []string{"g"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			viewer := startTestViewer(t, tt.options, input.String(), 8, 4)
+			viewer := startTestViewer(t, tt.options, input.String(), 8, 5)
 			viewer.press("5", "0")
 			viewer.press(tt.binding...)
 			frame := waitFrame(t, viewer.frames, firstFrameLine("line50-w"))
@@ -653,7 +653,7 @@ func TestRunCountedGotoLogicalLine(t *testing.T) {
 }
 
 func TestRunAmbiguousBindingPrefersLongerSequence(t *testing.T) {
-	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"up": {"g"}}}, "one\ntwo\nthree\nfour\nfive\nsix", 8, 2)
+	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{"up": {"g"}}}, "one\ntwo\nthree\nfour\nfive\nsix", 8, 3)
 	viewer.press("G")
 	waitFrame(t, viewer.frames, firstFrameLine("five"))
 	viewer.press("g", "g")
@@ -669,7 +669,7 @@ func TestRunFollowAndNavigationInSameActionBatch(t *testing.T) {
 	}
 	viewer := startTestViewer(t, Options{Keybinds: map[string][]string{
 		"follow": {"x"}, "top": {"x", "x"},
-	}}, input.String(), 8, 4)
+	}}, input.String(), 8, 5)
 	viewer.press("j")
 	waitFrame(t, viewer.frames, firstFrameLine("row01"))
 	viewer.press("j")
@@ -736,10 +736,11 @@ func waitFrame(t *testing.T, frames <-chan ui.Frame, matches func(ui.Frame) bool
 }
 
 func TestRunStreamsScrollsAndTogglesStatus(t *testing.T) {
-	application, err := New(Options{})
+	application, err := New(Options{CmdHeight: ui.CmdHeightToggle})
 	if err != nil {
 		t.Fatal(err)
 	}
+	application.UI.ToggleStatusline() // Exercise streaming from mode -1's hidden state.
 	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 8, Y: 4}), tcell.OptNegotiation(false))
 	if err != nil {
 		t.Fatal(err)
@@ -818,7 +819,8 @@ func TestRunStreamsScrollsAndTogglesStatus(t *testing.T) {
 }
 
 func TestRunFollowsAndCtrlCQuitsPendingSequence(t *testing.T) {
-	application, _ := New(Options{Follow: true})
+	application, _ := New(Options{Follow: true, CmdHeight: ui.CmdHeightToggle})
+	application.UI.ToggleStatusline()
 	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 4, Y: 3}), tcell.OptNegotiation(false))
 	if err != nil {
 		t.Fatal(err)
@@ -882,7 +884,7 @@ func TestRunReboundCtrlCAndEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 4, Y: 2}), tcell.OptNegotiation(false))
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 4, Y: 3}), tcell.OptNegotiation(false))
 	if err != nil {
 		t.Fatal(err)
 	}

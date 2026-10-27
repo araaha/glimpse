@@ -14,7 +14,7 @@ func TestNew(t *testing.T) {
 	if application.Document == nil || application.UI == nil {
 		t.Fatal("New() did not initialize document and UI state")
 	}
-	if got := application.UI.Layout(80, 24); got.StatusRow != -1 || got.SearchRow != -1 || got.Body.Height != 24 {
+	if got := application.UI.Layout(80, 24); got.StatusRow != 23 || got.SearchRow != -1 || got.Body.Height != 23 {
 		t.Fatalf("default footer layout = %+v", got)
 	}
 }
