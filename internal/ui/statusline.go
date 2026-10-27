@@ -63,9 +63,9 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 	if err != nil {
 		return nil, fmt.Errorf("statusline: %w", err)
 	}
-	// The defaults mirror a common powerline setup: a closing arrow
-	// (U+E0B0, needs a Nerd/Powerline font) and no opening cap.
-	s := &Statusline{base: base, close: "\ue0b0", styles: make(map[string]tcell.Style), caps: make(map[string]tcell.Style)}
+	// Caps are opt-in (e.g. U+E0B0 with a Nerd/Powerline font); by default
+	// sections are separated by their padding only.
+	s := &Statusline{base: base, styles: make(map[string]tcell.Style), caps: make(map[string]tcell.Style)}
 	defaults := map[string]Colors{
 		StatusMode:          {FG: "black", BG: "blue"},
 		StatusFilename:      {FG: "blue"},

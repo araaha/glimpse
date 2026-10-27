@@ -22,7 +22,7 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 		t.Fatal(err)
 	}
 	bar := model.Format(testStatusState(), 80, false)
-	if !strings.HasPrefix(bar.Text(), " VIEW \ue0b0 file.txt ") || !strings.HasSuffix(bar.Text(), " 3/27  842/1200 ") {
+	if !strings.HasPrefix(bar.Text(), " VIEW  file.txt ") || !strings.HasSuffix(bar.Text(), " 3/27  842/1200 ") {
 		t.Fatalf("status = %q", bar.Text())
 	}
 	// Defaults are terminal palette entries, so they follow the user's theme.
@@ -33,16 +33,10 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 	}{
 		StatusMode: {" VIEW ", black, blue}, StatusFilename: {" file.txt ", blue, black}, StatusSearchResults: {" 3/27 ", black, white}, StatusLineNumbers: {" 842/1200 ", black, blue},
 	}
-	caps := 0
 	for _, span := range bar.Spans {
 		if span.Section == "" {
-			// Only the mode block has a background distinct from the bar, and the
-			// default has a closing cap only.
-			if span.Text != "\ue0b0" || span.Style.GetForeground() != blue || span.Style.GetBackground() != black {
-				t.Fatalf("cap = %+v", span)
-			}
-			caps++
-			continue
+			// Caps are opt-in; the default has none.
+			t.Fatalf("cap = %+v", span)
 		}
 		value := want[span.Section]
 		if span.Text != value.text || span.Style.GetForeground() != value.fg || span.Style.GetBackground() != value.bg || span.Style.HasReverse() {
@@ -50,8 +44,8 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 		}
 		delete(want, span.Section)
 	}
-	if len(want) != 0 || caps != 1 {
-		t.Fatalf("missing sections: %v, caps %d", want, caps)
+	if len(want) != 0 {
+		t.Fatalf("missing sections: %v", want)
 	}
 	if bar.Style.GetBackground() != color.PaletteColor(0) {
 		t.Fatal("bar background is not black")
@@ -265,7 +259,7 @@ func TestStatuslineEmitsPaletteDefaultsAndHighlightRGB(t *testing.T) {
 	}
 	// Explicit hex stays RGB; defaults use normal palette SGR so they follow
 	// the terminal theme.
-	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44m VIEW ", "\x1b[34m\x1b[40m\ue0b0 file.txt ", "\x1b[30m\x1b[47m 3/27 "} {
+	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44m VIEW ", "\x1b[34m\x1b[40m file.txt ", "\x1b[30m\x1b[47m 3/27 "} {
 		if !strings.Contains(tty.output.String(), sequence) {
 			t.Fatalf("missing output %q in %q", sequence, tty.output.String())
 		}
