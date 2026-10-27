@@ -47,21 +47,48 @@ func (t *Terminal) Render(frame Frame) error {
 		for x := max(0, mark.Column); x < min(frame.Layout.Body.Width, mark.Column+mark.Width); {
 			text, style, width := t.screen.Get(x, mark.Row)
 			if width > 0 {
-				t.screen.Put(x, mark.Row, text, style.Reverse(true))
+				highlight := frame.HighlightStyle
+				fg, bg := highlight.GetForeground(), highlight.GetBackground()
+				if fg.Valid() || bg.Valid() {
+					style = style.Reverse(false)
+					if fg.Valid() {
+						style = style.Foreground(fg)
+					}
+					if bg.Valid() {
+						style = style.Background(bg)
+					}
+				} else {
+					style = style.Reverse(true)
+				}
+				t.screen.Put(x, mark.Row, text, style)
 			}
 			x += max(1, width)
 		}
 	}
 	if frame.Layout.StatusRow >= 0 {
-		style := tcell.StyleDefault.Reverse(true)
-		t.screen.FillArea(0, frame.Layout.StatusRow, frame.Layout.Body.Width, 1, ' ', style)
-		status := strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) {
-				return '?'
+		if frame.StatusBar != nil {
+			t.screen.FillArea(0, frame.Layout.StatusRow, frame.Layout.Body.Width, 1, ' ', frame.StatusBar.Style)
+			for _, span := range frame.StatusBar.Spans {
+				t.screen.FillArea(span.Column, frame.Layout.StatusRow, span.Width, 1, ' ', span.Style)
+				column := span.Column
+				iterator := graphemes.FromString(span.Text)
+				for iterator.Next() {
+					part := iterator.Value()
+					t.screen.Put(column, frame.Layout.StatusRow, part, span.Style)
+					column += statusWidth(part, frame.WideAmbiguous)
+				}
 			}
-			return r
-		}, frame.Status)
-		t.screen.PutStrStyled(0, frame.Layout.StatusRow, status, style)
+		} else {
+			style := tcell.StyleDefault.Reverse(true)
+			t.screen.FillArea(0, frame.Layout.StatusRow, frame.Layout.Body.Width, 1, ' ', style)
+			status := strings.Map(func(r rune) rune {
+				if unicode.IsControl(r) {
+					return '?'
+				}
+				return r
+			}, frame.Status)
+			t.screen.PutStrStyled(0, frame.Layout.StatusRow, clipStatus(status, frame.Layout.Body.Width, frame.WideAmbiguous), style)
+		}
 	}
 	t.screen.HideCursor()
 	if frame.Layout.SearchRow >= 0 {

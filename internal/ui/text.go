@@ -211,6 +211,15 @@ func (t *Text) NeedsUpdate(width int, complete bool) bool {
 
 func (t *Text) Indexed() int64 { return t.scanned }
 
+// LogicalLineAt returns the one-based logical line containing a decoded offset,
+// independently of wrapping. It reads only the existing UI-owned paged index.
+func (t *Text) LogicalLineAt(offset int64) int {
+	if t.LineCount() == 0 {
+		return 0
+	}
+	return min(t.LineCount(), max(1, sort.Search(t.lineStarts.count, func(i int) bool { return t.lineStarts.at(i) > offset })))
+}
+
 // SearchAnchor supplies a decoded restart boundary near origin. Rewinding some
 // logical lines makes backward repeats cheap without starting inside hidden
 // controls, UTF-8, or a wrapped man-page overstrike sequence.

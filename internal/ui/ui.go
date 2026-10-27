@@ -1,6 +1,10 @@
 package ui
 
-import "glimpse/internal/content"
+import (
+	"glimpse/internal/content"
+
+	"github.com/gdamore/tcell/v3"
+)
 
 // Viewport describes the portion of the input needed for one screen frame.
 // Storage and stream ingestion must not depend on the size of a logical line.
@@ -12,15 +16,23 @@ type Viewport struct {
 
 // Frame contains only the text and footer needed for one screen update.
 type Frame struct {
-	Layout        Layout
-	Lines         []string
-	Status        string
-	Search        string
-	SearchActive  bool
-	SearchCursor  int // Rune index in Search, including the direction prefix.
-	Highlights    []Highlight
-	Styled        [][]Glyph
-	WideAmbiguous bool
+	Layout         Layout
+	Lines          []string
+	Status         string
+	StatusBar      *StatusBar
+	StatusState    StatusState
+	Reading        bool
+	Indexing       bool
+	SeekingEnd     bool
+	Follow         bool
+	DocumentLength int64
+	HighlightStyle tcell.Style
+	Search         string
+	SearchActive   bool
+	SearchCursor   int // Rune index in Search, including the direction prefix.
+	Highlights     []Highlight
+	Styled         [][]Glyph
+	WideAmbiguous  bool
 }
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.
