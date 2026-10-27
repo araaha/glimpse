@@ -35,7 +35,7 @@ func TestRunCmdheightModes(t *testing.T) {
 			for _, prefix := range []string{"/", "?", ":"} {
 				viewer.press(prefix)
 				promptStatus, promptHeight := -1, 4
-				if mode == 1 {
+				if mode != -1 {
 					promptStatus, promptHeight = 3, 3
 				}
 				check(promptStatus, 4, promptHeight, true)

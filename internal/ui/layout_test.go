@@ -14,7 +14,7 @@ func TestLayout(t *testing.T) {
 		searchRow int
 	}{
 		{"toggle starts visible", CmdHeightToggle, 80, 24, 80, 23, 23, -1},
-		{"mode zero reserves shared row", CmdHeightStatusOnly, 80, 24, 80, 23, 23, -1},
+		{"mode zero reserves status row", CmdHeightStatusOnly, 80, 24, 80, 23, 23, -1},
 		{"status above search", CmdHeightWithSearch, 80, 24, 80, 22, 22, 23},
 		{"only footer fits", CmdHeightWithSearch, 80, 2, 80, 0, 0, 1},
 		{"search takes priority", CmdHeightWithSearch, 80, 1, 80, 0, -1, 0},
@@ -91,7 +91,7 @@ func TestSearchFooterLayouts(t *testing.T) {
 		model.SetSearchVisible(true)
 		layout := model.Layout(80, 24)
 		wantHeight, wantStatus := 23, -1
-		if mode == 1 {
+		if mode != -1 {
 			wantHeight, wantStatus = 22, 22
 		}
 		if layout.Body.Height != wantHeight || layout.StatusRow != wantStatus || layout.SearchRow != 23 {
@@ -99,6 +99,9 @@ func TestSearchFooterLayouts(t *testing.T) {
 		}
 		if tiny := model.Layout(1, 1); tiny.SearchRow != 0 || tiny.Body.Height != 0 || tiny.StatusRow != -1 {
 			t.Fatalf("tiny search layout = %+v", tiny)
+		}
+		if small := model.Layout(80, 2); mode != -1 && (small.StatusRow != 0 || small.SearchRow != 1 || small.Body.Height != 0) {
+			t.Fatalf("mode %d two-row search layout = %+v", mode, small)
 		}
 		model.SetSearchVisible(false)
 		if got := model.Layout(80, 24); got != before {

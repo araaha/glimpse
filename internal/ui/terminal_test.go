@@ -120,3 +120,39 @@ func screenLine(screen tcell.Screen, row, width int) string {
 	}
 	return result.String()
 }
+
+func TestModeZeroAddsSearchBelowStatus(t *testing.T) {
+	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 12, Y: 4}), tcell.OptNegotiation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := screen.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer screen.Fini()
+	terminal := NewTerminal(screen)
+	model, _ := NewModel(CmdHeightStatusOnly)
+	for _, prefix := range []string{"/", "?"} {
+		model.SetSearchVisible(true)
+		frame := Frame{Layout: model.Layout(12, 4), Lines: []string{"one", "two"}, Status: "status", Search: prefix, SearchActive: true, SearchCursor: 1}
+		if err := terminal.Render(frame); err != nil {
+			t.Fatal(err)
+		}
+		if got := screenLine(screen, 2, 12); !strings.HasPrefix(got, "status") {
+			t.Fatalf("search replaced statusline: %q", got)
+		}
+		if got := screenLine(screen, 3, 12); !strings.HasPrefix(got, prefix) {
+			t.Fatalf("search row = %q, want prefix %q", got, prefix)
+		}
+		model.SetSearchVisible(false)
+		if err := terminal.Render(Frame{Layout: model.Layout(12, 4), Lines: []string{"one", "two", "three"}, Status: "status"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := screenLine(screen, 2, 12); !strings.HasPrefix(got, "three") {
+			t.Fatalf("closing search did not return row to body: %q", got)
+		}
+		if got := screenLine(screen, 3, 12); !strings.HasPrefix(got, "status") {
+			t.Fatalf("closing search did not restore statusline: %q", got)
+		}
+	}
+}

@@ -8,7 +8,7 @@ type CmdHeight int
 const (
 	// CmdHeightToggle reserves a status row that can be hidden in the view.
 	CmdHeightToggle CmdHeight = -1
-	// CmdHeightStatusOnly reserves one shared status/prompt row.
+	// CmdHeightStatusOnly reserves a status row and adds a prompt row on demand.
 	CmdHeightStatusOnly CmdHeight = 0
 
 	// CmdHeightWithSearch reserves a status row above a separate search row.
@@ -35,8 +35,8 @@ type Model struct {
 	searchVisible bool
 }
 
-// SetSearchVisible temporarily uses the footer for a prompt or search message.
-// In modes 0/-1 it replaces the status row; mode 1 keeps both separate rows.
+// SetSearchVisible shows a prompt or search message. Mode 0 adds a row below
+// status; mode -1 replaces status; mode 1 always reserves both rows.
 func (m *Model) SetSearchVisible(visible bool) { m.searchVisible = visible }
 
 // NewModel creates a view with its statusline visible in every mode.
@@ -57,7 +57,7 @@ func (m *Model) ToggleStatusline() {
 
 // Layout separates the document area from footer rows. Row positions are
 // zero-based; -1 means the row is hidden or there is no room for it. Search
-// temporarily replaces the footer in modes 0/-1; mode 1 reserves both rows.
+// adds a footer row in mode 0 and replaces status in mode -1; mode 1 reserves both.
 type Layout struct {
 	Body      Viewport
 	StatusRow int
@@ -76,7 +76,7 @@ func (m *Model) Layout(width, height int) Layout {
 		layout.Body.Height--
 		layout.SearchRow = layout.Body.Height
 	}
-	if (m.cmdHeight == CmdHeightWithSearch || (m.statusVisible && !m.searchVisible)) && layout.Body.Height > 0 {
+	if (m.cmdHeight != CmdHeightToggle || (m.statusVisible && !m.searchVisible)) && layout.Body.Height > 0 {
 		layout.Body.Height--
 		layout.StatusRow = layout.Body.Height
 	}

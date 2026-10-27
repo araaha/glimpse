@@ -209,7 +209,7 @@ func TestRunSearchModeSwitchRetriesKeysInNewMode(t *testing.T) {
 
 func TestRunRapidSearchRepeatsAreNotDropped(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	viewer := startTestViewer(t, Options{}, "first hit\ngap\nsecond hit\ngap\nthird hit\ngap\nfourth hit", 20, 2)
+	viewer := startTestViewer(t, Options{}, "first hit\ngap\nsecond hit\ngap\nthird hit\ngap\nfourth hit", 20, 3)
 	viewer.press("/")
 	viewer.typeText("hit")
 	viewer.press("<Enter>", "n", "n")
@@ -229,7 +229,7 @@ func TestRunRapidSearchRepeatsAreNotDropped(t *testing.T) {
 
 func TestRunIncrementalSearchRestoresAnchor(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	viewer := startTestViewer(t, Options{IncrementalSearch: true}, "start\none\ntwo\ntarget\nend", 12, 2)
+	viewer := startTestViewer(t, Options{IncrementalSearch: true}, "start\none\ntwo\ntarget\nend", 12, 3)
 	viewer.press("/")
 	viewer.typeText("target")
 	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.SearchActive && firstFrameLine("target")(frame) })
@@ -292,7 +292,7 @@ func TestRunBackwardPreviewAcceptUsesOriginalOrigin(t *testing.T) {
 
 func TestRunCommandNavigationClearsSearchAnchor(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	viewer := startTestViewer(t, Options{}, "first hit\ngap\nsecond hit\ngap\nthird hit\nend", 20, 2)
+	viewer := startTestViewer(t, Options{}, "first hit\ngap\nsecond hit\ngap\nthird hit\nend", 20, 3)
 	viewer.press("/")
 	viewer.typeText("hit")
 	viewer.press("<Enter>")

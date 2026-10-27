@@ -10,7 +10,7 @@ import (
 )
 
 // Options contains startup settings resolved by the CLI configuration layer.
-// Its zero value selects cmdheight = 0, with a shared status/prompt row.
+// Its zero value selects cmdheight = 0, with status plus an on-demand prompt row.
 type Options struct {
 	CmdHeight         ui.CmdHeight
 	ChunkSize         int

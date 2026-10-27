@@ -121,7 +121,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().String("retention", "lossless", "stream retention: lossless or rolling (explicit history loss)")
 	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
 	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
-	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 toggleable status/prompt row, 0 shared status/prompt row, 1 separate status and search rows")
+	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
 	return root
 }
 
