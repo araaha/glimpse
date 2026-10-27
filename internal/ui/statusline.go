@@ -17,18 +17,23 @@ const (
 	StatusLineNumbers   = "line-numbers"
 )
 
+// Separators are powerline-style caps on colored sections: Open precedes each
+// right-side section and Close follows each left-side section. A cap takes its
+// section's background as foreground over the bar, so the block appears to end
+// in that glyph. Sections without their own background get no caps.
 type StatuslineConfig struct {
-	Left, Right []string // nil inherits defaults; an empty array disables a side.
-	Separator   *string  // nil inherits the default; an empty string is valid.
-	FG, BG      string
-	Styles      map[string]Colors
+	Left, Right                   []string // nil inherits defaults; an empty array disables a side.
+	SeparatorOpen, SeparatorClose *string  // nil inherits the default; an empty string disables.
+	FG, BG                        string
+	Styles                        map[string]Colors
 }
 
 type Statusline struct {
 	left, right []string
-	separator   string
+	open, close string
 	base        tcell.Style
 	styles      map[string]tcell.Style
+	caps        map[string]tcell.Style // Only sections with their own background.
 }
 
 // StatusState is immutable frame data, never a reference to a mutable index.
@@ -58,7 +63,9 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 	if err != nil {
 		return nil, fmt.Errorf("statusline: %w", err)
 	}
-	s := &Statusline{base: base, separator: " │ ", styles: make(map[string]tcell.Style)}
+	// The defaults mirror a common powerline setup: a closing arrow
+	// (U+E0B0, needs a Nerd/Powerline font) and no opening cap.
+	s := &Statusline{base: base, close: "\ue0b0", styles: make(map[string]tcell.Style), caps: make(map[string]tcell.Style)}
 	defaults := map[string]Colors{
 		StatusMode:          {FG: "black", BG: "blue"},
 		StatusFilename:      {FG: "blue"},
@@ -109,16 +116,28 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 			*side.output = append(*side.output, section)
 		}
 	}
-	if config.Separator != nil {
-		if len(*config.Separator) > 256 {
-			return nil, fmt.Errorf("statusline.separator must be at most 256 bytes")
+	for _, separator := range []struct {
+		name   string
+		value  *string
+		target *string
+	}{{"separator-open", config.SeparatorOpen, &s.open}, {"separator-close", config.SeparatorClose, &s.close}} {
+		if separator.value == nil {
+			continue
 		}
-		for _, r := range *config.Separator {
+		if len(*separator.value) > 256 {
+			return nil, fmt.Errorf("statusline.%s must be at most 256 bytes", separator.name)
+		}
+		for _, r := range *separator.value {
 			if unicode.IsControl(r) {
-				return nil, fmt.Errorf("statusline.separator cannot contain control characters")
+				return nil, fmt.Errorf("statusline.%s cannot contain control characters", separator.name)
 			}
 		}
-		s.separator = *config.Separator
+		*separator.target = *separator.value
+	}
+	for name, style := range s.styles {
+		if bg := style.GetBackground(); bg != base.GetBackground() {
+			s.caps[name] = base.Foreground(bg)
+		}
 	}
 	return s, nil
 }
@@ -198,25 +217,40 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 		total = fmt.Sprint(state.TotalLines)
 	}
 	values[StatusLineNumbers] = fmt.Sprintf("%d/%s", state.TopLine, total)
-	pad := " "
-	build := func(names []string) []StatusSpan {
+	// Padding and caps are decoration, dropped together on narrow terminals.
+	decorate := true
+	build := func(names []string, right bool) []StatusSpan {
 		var spans []StatusSpan
 		column := 0
+		add := func(text, section string, style tcell.Style) {
+			if text == "" {
+				return
+			}
+			w := statusWidth(text, wide)
+			spans = append(spans, StatusSpan{Column: column, Width: w, Text: text, Section: section, Style: style})
+			column += w
+		}
 		for _, name := range names {
 			value := values[name]
 			if value == "" {
 				continue
 			}
-			if len(spans) > 0 && s.separator != "" {
-				w := statusWidth(s.separator, wide)
-				spans = append(spans, StatusSpan{Column: column, Width: w, Text: s.separator, Style: s.base})
-				column += w
+			if !decorate {
+				if len(spans) > 0 {
+					add(" ", "", s.base)
+				}
+				add(value, name, s.styles[name])
+				continue
+			}
+			capStyle, capped := s.caps[name]
+			if right && capped {
+				add(s.open, "", capStyle)
 			}
 			// Pad inside the span so the section background frames its text.
-			value = pad + value + pad
-			w := statusWidth(value, wide)
-			spans = append(spans, StatusSpan{Column: column, Width: w, Text: value, Section: name, Style: s.styles[name]})
-			column += w
+			add(" "+value+" ", name, s.styles[name])
+			if !right && capped {
+				add(s.close, "", capStyle)
+			}
 		}
 		return spans
 	}
@@ -238,18 +272,22 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 	filename := values[StatusFilename]
 	fit := func() {
 		values[StatusFilename] = filename
-		left, right = build(s.left), build(s.right)
+		left, right = build(s.left, false), build(s.right, true)
 		if overflow := groupWidth() - width; overflow > 0 {
 			// Filename is always the first field sacrificed to a narrow terminal,
 			// regardless of which side the user placed it on.
-			values[StatusFilename] = clipStatus(filename, statusWidth(filename, wide)-overflow, wide)
-			left, right = build(s.left), build(s.right)
+			clipped := clipStatus(filename, statusWidth(filename, wide)-overflow, wide)
+			if clipped == "…" {
+				clipped = "" // An ellipsis alone says nothing about the name.
+			}
+			values[StatusFilename] = clipped
+			left, right = build(s.left, false), build(s.right, true)
 		}
 	}
 	fit()
 	if groupWidth() > width {
-		// Padding is cosmetic; drop it before hiding any section.
-		pad = ""
+		// Decoration is cosmetic; drop it before hiding any section.
+		decorate = false
 		fit()
 	}
 	if groupWidth() > width && s.Has(StatusMode) {

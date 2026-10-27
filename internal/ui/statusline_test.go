@@ -22,7 +22,7 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 		t.Fatal(err)
 	}
 	bar := model.Format(testStatusState(), 80, false)
-	if !strings.HasPrefix(bar.Text(), " VIEW  │  file.txt ") || !strings.HasSuffix(bar.Text(), " 3/27  │  842/1200 ") {
+	if !strings.HasPrefix(bar.Text(), " VIEW \ue0b0 file.txt ") || !strings.HasSuffix(bar.Text(), " 3/27  842/1200 ") {
 		t.Fatalf("status = %q", bar.Text())
 	}
 	// Defaults are terminal palette entries, so they follow the user's theme.
@@ -33,8 +33,15 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 	}{
 		StatusMode: {" VIEW ", black, blue}, StatusFilename: {" file.txt ", blue, black}, StatusSearchResults: {" 3/27 ", black, white}, StatusLineNumbers: {" 842/1200 ", black, blue},
 	}
+	caps := 0
 	for _, span := range bar.Spans {
 		if span.Section == "" {
+			// Only the mode block has a background distinct from the bar, and the
+			// default has a closing cap only.
+			if span.Text != "\ue0b0" || span.Style.GetForeground() != blue || span.Style.GetBackground() != black {
+				t.Fatalf("cap = %+v", span)
+			}
+			caps++
 			continue
 		}
 		value := want[span.Section]
@@ -43,8 +50,8 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 		}
 		delete(want, span.Section)
 	}
-	if len(want) != 0 {
-		t.Fatalf("missing sections: %v", want)
+	if len(want) != 0 || caps != 1 {
+		t.Fatalf("missing sections: %v, caps %d", want, caps)
 	}
 	if bar.Style.GetBackground() != color.PaletteColor(0) {
 		t.Fatal("bar background is not black")
@@ -52,21 +59,22 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 }
 
 func TestStatuslineOmissionsOrderingAndInheritance(t *testing.T) {
-	separator := " :: "
-	model, err := NewStatusline(StatuslineConfig{Left: []string{"FILENAME", "MODE"}, Right: []string{"LINE_NUMBERS"}, Separator: &separator, BG: "#112233", Styles: map[string]Colors{StatusMode: {BG: "#445566"}, StatusFilename: {FG: "#778899"}}})
+	open, closing := "<", ">"
+	model, err := NewStatusline(StatuslineConfig{Left: []string{"FILENAME", "MODE"}, Right: []string{"LINE_NUMBERS"}, SeparatorOpen: &open, SeparatorClose: &closing, BG: "#112233", Styles: map[string]Colors{StatusMode: {BG: "#445566"}, StatusFilename: {FG: "#778899"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := testStatusState()
 	state.Filename, state.HasSearch = "", false
 	bar := model.Format(state, 40, false)
-	if !strings.HasPrefix(bar.Text(), " VIEW ") || strings.Contains(bar.Text(), "::") || strings.Contains(bar.Text(), "3/27") {
-		t.Fatalf("omitted filename/search left separators: %q", bar.Text())
+	if !strings.HasPrefix(bar.Text(), " VIEW >") || !strings.HasSuffix(bar.Text(), "< 842/1200 ") || strings.Contains(bar.Text(), "3/27") {
+		t.Fatalf("omitted filename/search = %q", bar.Text())
 	}
 	state.Filename = "example"
 	bar = model.Format(state, 40, false)
-	if !strings.HasPrefix(bar.Text(), " example  ::  VIEW ") {
-		t.Fatalf("configured order/separator = %q", bar.Text())
+	// The filename has no background of its own, so it gets no caps.
+	if !strings.HasPrefix(bar.Text(), " example  VIEW >") {
+		t.Fatalf("configured order/separators = %q", bar.Text())
 	}
 	for _, span := range bar.Spans {
 		if span.Section == StatusFilename && (span.Style.GetBackground() != color.NewHexColor(0x112233) || span.Style.GetForeground() != color.NewHexColor(0x778899)) {
@@ -80,8 +88,8 @@ func TestStatuslineOmissionsOrderingAndInheritance(t *testing.T) {
 	if bar := empty.Format(state, 20, false); len(bar.Spans) != 0 || bar.Text() != strings.Repeat(" ", 20) {
 		t.Fatalf("empty configuration = %+v", bar)
 	}
-	separator = ""
-	joined, _ := NewStatusline(StatuslineConfig{Separator: &separator, Right: []string{}})
+	none := ""
+	joined, _ := NewStatusline(StatuslineConfig{SeparatorClose: &none, Right: []string{}})
 	if got := joined.Format(state, 40, false).Text(); !strings.HasPrefix(got, " VIEW  example ") {
 		t.Fatalf("empty separator = %q", got)
 	}
@@ -126,15 +134,16 @@ func TestNarrowStatuslineKeepsModeAndLinePosition(t *testing.T) {
 		}
 		return seen
 	}
-	// Padding is dropped before any section text is clipped or hidden.
+	// Padding and caps are dropped before any section text is clipped or
+	// hidden; undecorated sections are separated by single spaces.
 	if seen := sections(15); seen[StatusMode] != "VIEW" || seen[StatusLineNumbers] != "842/1200" || seen[StatusSearchResults] != "" || seen[StatusFilename] != "" {
 		t.Fatalf("narrow fields = %v", seen)
 	}
-	if seen := sections(21); seen[StatusMode] != "VIEW" || seen[StatusSearchResults] != "3/27" || seen[StatusLineNumbers] != "842/1200" {
-		t.Fatalf("unpadded fields = %v", seen)
+	if bar := model.Format(testStatusState(), 21, false); !strings.HasSuffix(bar.Text(), " 3/27 842/1200") || strings.ContainsRune(bar.Text(), '\ue0b0') {
+		t.Fatalf("undecorated bar = %q", bar.Text())
 	}
-	// With room for padding, a shortened filename keeps it.
-	if seen := sections(36); seen[StatusMode] != " VIEW " || !strings.HasPrefix(seen[StatusFilename], " ") || !strings.HasSuffix(seen[StatusFilename], "… ") {
+	// With room for decoration, a shortened filename keeps it.
+	if seen := sections(32); seen[StatusMode] != " VIEW " || !strings.HasPrefix(seen[StatusFilename], " ") || !strings.HasSuffix(seen[StatusFilename], "… ") {
 		t.Fatalf("padded fields = %v", seen)
 	}
 }
@@ -142,7 +151,7 @@ func TestNarrowStatuslineKeepsModeAndLinePosition(t *testing.T) {
 func TestStatuslineRejectsInvalidConfiguration(t *testing.T) {
 	bad := "\x1b[31m"
 	for _, config := range []StatuslineConfig{
-		{Left: []string{"unknown"}}, {Left: []string{"MODE"}, Right: []string{"mode"}}, {FG: "navy"}, {BG: "#xyz123"}, {Separator: &bad},
+		{Left: []string{"unknown"}}, {Left: []string{"MODE"}, Right: []string{"mode"}}, {FG: "navy"}, {BG: "#xyz123"}, {SeparatorOpen: &bad}, {SeparatorClose: &bad},
 		{Styles: map[string]Colors{"unknown": {FG: "#ffffff"}}}, {Styles: map[string]Colors{StatusMode: {BG: "#123"}}},
 	} {
 		if _, err := NewStatusline(config); err == nil {
@@ -256,7 +265,7 @@ func TestStatuslineEmitsPaletteDefaultsAndHighlightRGB(t *testing.T) {
 	}
 	// Explicit hex stays RGB; defaults use normal palette SGR so they follow
 	// the terminal theme.
-	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44m VIEW ", "\x1b[34m\x1b[40m file.txt ", "\x1b[30m\x1b[47m 3/27 "} {
+	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44m VIEW ", "\x1b[34m\x1b[40m\ue0b0 file.txt ", "\x1b[30m\x1b[47m 3/27 "} {
 		if !strings.Contains(tty.output.String(), sequence) {
 			t.Fatalf("missing output %q in %q", sequence, tty.output.String())
 		}

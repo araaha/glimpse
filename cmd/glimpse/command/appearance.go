@@ -14,7 +14,7 @@ import (
 func readAppearance(config *viper.Viper, options *app.Options) error {
 	for key := range config.GetStringMap("statusline") {
 		switch key {
-		case "left", "right", "separator", "fg", "bg", "styles":
+		case "left", "right", "separator-open", "separator-close", "fg", "bg", "styles":
 		default:
 			return fmt.Errorf("unknown statusline option %q", key)
 		}
@@ -88,12 +88,18 @@ func readAppearance(config *viper.Viper, options *app.Options) error {
 		}
 	}
 	var err error
-	if config.IsSet("statusline.separator") {
-		value, err := readString("statusline.separator")
+	for _, separator := range []struct {
+		key    string
+		target **string
+	}{{"separator-open", &options.Statusline.SeparatorOpen}, {"separator-close", &options.Statusline.SeparatorClose}} {
+		if !config.IsSet("statusline." + separator.key) {
+			continue
+		}
+		value, err := readString("statusline." + separator.key)
 		if err != nil {
 			return err
 		}
-		options.Statusline.Separator = &value
+		*separator.target = &value
 	}
 	options.Statusline.FG, err = readString("statusline.fg")
 	if err != nil {
