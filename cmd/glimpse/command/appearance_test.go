@@ -72,7 +72,7 @@ func TestAppearanceConfiguration(t *testing.T) {
 		{name: "duplicate section", config: "[statusline]\nleft = ['mode']\nright = ['MODE']", wantErr: "duplicate statusline section"},
 		{name: "scalar section list", config: "[statusline]\nleft = 'mode'", wantErr: "must be an array"},
 		{name: "non-string section", config: "[statusline]\nleft = [1]", wantErr: "only section names"},
-		{name: "invalid bar color", config: "[statusline]\nbg = 'blue'", wantErr: "#RRGGBB"},
+		{name: "invalid bar color", config: "[statusline]\nbg = 'navy'", wantErr: "#RRGGBB"},
 		{name: "invalid section color", config: "[statusline.styles.mode]\nbg = '#123'", wantErr: "#RRGGBB"},
 		{name: "invalid highlight color", config: "[search.highlight-style]\nfg = '#ghijkl'", wantErr: "#RRGGBB"},
 		{name: "numeric color", config: "[statusline]\nfg = 123", wantErr: "must be a string"},

@@ -53,17 +53,17 @@ type StatusBar struct {
 }
 
 func NewStatusline(config StatuslineConfig) (*Statusline, error) {
-	base, _ := (Colors{FG: "#ffffff", BG: "#000000"}).Style(tcell.StyleDefault)
+	base, _ := (Colors{FG: "white", BG: "black"}).Style(tcell.StyleDefault)
 	base, err := (Colors{FG: config.FG, BG: config.BG}).Style(base)
 	if err != nil {
 		return nil, fmt.Errorf("statusline: %w", err)
 	}
 	s := &Statusline{base: base, separator: " │ ", styles: make(map[string]tcell.Style)}
 	defaults := map[string]Colors{
-		StatusMode:          {FG: "#000000", BG: "#0000ff"},
-		StatusFilename:      {FG: "#0000ff"},
-		StatusSearchResults: {FG: "#000000", BG: "#ffffff"},
-		StatusLineNumbers:   {FG: "#000000", BG: "#0000ff"},
+		StatusMode:          {FG: "black", BG: "blue"},
+		StatusFilename:      {FG: "blue"},
+		StatusSearchResults: {FG: "black", BG: "white"},
+		StatusLineNumbers:   {FG: "black", BG: "blue"},
 	}
 	for name, colors := range defaults {
 		s.styles[name], _ = colors.Style(base)

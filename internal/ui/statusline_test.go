@@ -25,18 +25,20 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 	if !strings.HasPrefix(bar.Text(), "VIEW │ file.txt") || !strings.HasSuffix(bar.Text(), "3/27 │ 842/1200") {
 		t.Fatalf("status = %q", bar.Text())
 	}
+	// Defaults are terminal palette entries, so they follow the user's theme.
+	black, blue, white := color.PaletteColor(0), color.PaletteColor(4), color.PaletteColor(7)
 	want := map[string]struct {
 		text   string
-		fg, bg int32
+		fg, bg color.Color
 	}{
-		StatusMode: {"VIEW", 0, 0x0000ff}, StatusFilename: {"file.txt", 0x0000ff, 0}, StatusSearchResults: {"3/27", 0, 0xffffff}, StatusLineNumbers: {"842/1200", 0, 0x0000ff},
+		StatusMode: {"VIEW", black, blue}, StatusFilename: {"file.txt", blue, black}, StatusSearchResults: {"3/27", black, white}, StatusLineNumbers: {"842/1200", black, blue},
 	}
 	for _, span := range bar.Spans {
 		if span.Section == "" {
 			continue
 		}
 		value := want[span.Section]
-		if span.Text != value.text || span.Style.GetForeground() != color.NewHexColor(value.fg) || span.Style.GetBackground() != color.NewHexColor(value.bg) || span.Style.HasReverse() {
+		if span.Text != value.text || span.Style.GetForeground() != value.fg || span.Style.GetBackground() != value.bg || span.Style.HasReverse() {
 			t.Fatalf("section %s = %+v", span.Section, span)
 		}
 		delete(want, span.Section)
@@ -44,7 +46,7 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing sections: %v", want)
 	}
-	if bar.Style.GetBackground() != color.NewHexColor(0) {
+	if bar.Style.GetBackground() != color.PaletteColor(0) {
 		t.Fatal("bar background is not black")
 	}
 }
@@ -70,7 +72,7 @@ func TestStatuslineOmissionsOrderingAndInheritance(t *testing.T) {
 		if span.Section == StatusFilename && (span.Style.GetBackground() != color.NewHexColor(0x112233) || span.Style.GetForeground() != color.NewHexColor(0x778899)) {
 			t.Fatal("filename did not inherit bar bg/override fg")
 		}
-		if span.Section == StatusMode && (span.Style.GetBackground() != color.NewHexColor(0x445566) || span.Style.GetForeground() != color.NewHexColor(0)) {
+		if span.Section == StatusMode && (span.Style.GetBackground() != color.NewHexColor(0x445566) || span.Style.GetForeground() != color.PaletteColor(0)) {
 			t.Fatal("partial mode style lost default foreground")
 		}
 	}
@@ -130,7 +132,7 @@ func TestNarrowStatuslineKeepsModeAndLinePosition(t *testing.T) {
 func TestStatuslineRejectsInvalidConfiguration(t *testing.T) {
 	bad := "\x1b[31m"
 	for _, config := range []StatuslineConfig{
-		{Left: []string{"unknown"}}, {Left: []string{"MODE"}, Right: []string{"mode"}}, {FG: "red"}, {BG: "#xyz123"}, {Separator: &bad},
+		{Left: []string{"unknown"}}, {Left: []string{"MODE"}, Right: []string{"mode"}}, {FG: "navy"}, {BG: "#xyz123"}, {Separator: &bad},
 		{Styles: map[string]Colors{"unknown": {FG: "#ffffff"}}}, {Styles: map[string]Colors{StatusMode: {BG: "#123"}}},
 	} {
 		if _, err := NewStatusline(config); err == nil {
@@ -186,7 +188,7 @@ func TestStatuslineAndHighlightStylesReachTerminal(t *testing.T) {
 			}
 		}
 		_, filler, _ := screen.Get(30, 2)
-		if filler.GetBackground() != color.NewHexColor(0) {
+		if filler.GetBackground() != color.PaletteColor(0) {
 			t.Fatal("status filler is not black")
 		}
 	}
@@ -215,7 +217,7 @@ func TestStatuslineTerminalRespectsAmbiguousWidth(t *testing.T) {
 	}
 }
 
-func TestStatuslineAndHighlightEmitConfiguredRGB(t *testing.T) {
+func TestStatuslineEmitsPaletteDefaultsAndHighlightRGB(t *testing.T) {
 	t.Setenv("COLORTERM", "truecolor")
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("TCELL_TRUECOLOR", "")
@@ -237,10 +239,15 @@ func TestStatuslineAndHighlightEmitConfiguredRGB(t *testing.T) {
 	if err := tty.Drain(); err != nil {
 		t.Fatal(err)
 	}
-	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[38;2;0;0;0;48;2;0;0;255m", "\x1b[38;2;0;0;0;48;2;255;255;255m"} {
+	// Explicit hex stays RGB; defaults use normal palette SGR so they follow
+	// the terminal theme.
+	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44mVIEW", "\x1b[34m\x1b[40mfile.txt", "\x1b[30m\x1b[47m3/27"} {
 		if !strings.Contains(tty.output.String(), sequence) {
-			t.Fatalf("missing configured RGB output %q in %q", sequence, tty.output.String())
+			t.Fatalf("missing output %q in %q", sequence, tty.output.String())
 		}
+	}
+	if strings.Contains(tty.output.String(), "38;2;0;0;0") {
+		t.Fatal("default statusline colors were emitted as RGB")
 	}
 }
 
@@ -266,4 +273,21 @@ func FuzzStatuslineFitsWidth(f *testing.F) {
 			t.Fatalf("status overflows width %d: %q", width, bar.Text())
 		}
 	})
+}
+
+func TestColorsAcceptPaletteNamesAndHex(t *testing.T) {
+	for text, want := range map[string]color.Color{
+		"blue": color.PaletteColor(4), "Bright-Blue": color.PaletteColor(12), "BRIGHT_WHITE": color.PaletteColor(15),
+		"black": color.PaletteColor(0), "#61afef": color.NewHexColor(0x61afef),
+	} {
+		style, err := (Colors{FG: text}).Style(tcell.StyleDefault)
+		if err != nil || style.GetForeground() != want {
+			t.Fatalf("%q = %v, %v; want %v", text, style.GetForeground(), err, want)
+		}
+	}
+	for _, text := range []string{"navy", "#123", "#ghijkl", "bright-", "4"} {
+		if _, err := (Colors{BG: text}).Style(tcell.StyleDefault); err == nil || !strings.Contains(err.Error(), "#RRGGBB") {
+			t.Fatalf("%q accepted or unclear error: %v", text, err)
+		}
+	}
 }
