@@ -114,6 +114,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		return nil
 	}
+	startSearch := func(origin int64, backward, include bool) {
+		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: a.Document.Start(), end: a.Document.Len()}
+		chunks, indexed := counts.chunksFor(key)
+		search.start(ctx, a.Document, chunks, indexed, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, include)
+	}
 	scheduleIndex := func() {
 		if text.NeedsUpdate(layout.Body.Width, !reading) {
 			indexWork.Reset(0)
@@ -272,7 +277,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 					if search.busy {
 						search.repeats = append(search.repeats, backward)
 					} else {
-						search.start(ctx, a.Document, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, include)
+						startSearch(origin, backward, include)
 					}
 				}
 				dirty = true
@@ -314,7 +319,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return
 		}
 		search.query, search.backward, search.matched = query, p.backward, false
-		search.start(ctx, a.Document, p.origin, text.SearchAnchor(p.origin), p.backward, a.SmartCase, a.IgnoreCase, true)
+		startSearch(p.origin, p.backward, true)
 	}
 	applyPrompt = func(commands []keybind.Command) (bool, error) {
 		for i := len(commands) - 1; i >= 0; i-- {
@@ -385,7 +390,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 				search.query, search.backward, search.matched = query, backward, false
 				view.follow, view.bottom = false, false
-				search.start(ctx, a.Document, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, true)
+				startSearch(origin, backward, true)
 			default:
 				before := string(search.prompt.text)
 				search.prompt.edit(command)
@@ -483,7 +488,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if response.err == nil && response.result.Found && len(search.repeats) > 0 {
 				backward := search.repeats[0]
 				search.repeats = search.repeats[1:]
-				search.start(ctx, a.Document, search.match, text.SearchAnchor(search.match), backward, a.SmartCase, a.IgnoreCase, false)
+				startSearch(search.match, backward, false)
 			} else if response.err != nil || !response.result.Found {
 				search.repeats = nil
 			}

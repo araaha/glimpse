@@ -53,14 +53,15 @@ func TestStatusCountsCacheAndOrdinal(t *testing.T) {
 			t.Fatal("nearby repeat rescanned the file")
 		}
 	}
+	// The whole input is one chunk with cached offsets: distant ordinals need no scan.
 	counts.request(context.Background(), source, key, 4*800, true, true)
-	awaitCounts(t, counts)
+	if counts.running {
+		t.Fatal("distant ordinal in a cached chunk rescanned")
+	}
 	if current, _, known, _ := counts.values(key, 4*800, true); !known || current != 801 {
 		t.Fatalf("distant ordinal = %d, known %v", current, known)
 	}
 	// A stale selected match under changed case options must not cause a recount loop.
-	counts.request(context.Background(), source, key, 4*800+1, true, true)
-	awaitCounts(t, counts)
 	counts.request(context.Background(), source, key, 4*800+1, true, true)
 	if counts.running {
 		t.Fatal("non-matching selected offset triggered an endless recount")
@@ -186,6 +187,7 @@ func TestStatusCountsAppendAndRollingInvalidation(t *testing.T) {
 	defer ring.Close()
 	ring.Write([]byte(strings.Repeat("hit\n", 64)))
 	key.base, key.end = ring.Start(), ring.Len()
+	counts.next = time.Time{} // A moved base is throttled like growth.
 	counts.request(context.Background(), ring, key, ring.Start(), true, true)
 	result := awaitCounts(t, counts)
 	if result.err != nil || result.total != 16 {
@@ -217,5 +219,80 @@ func TestStatusCountsFailureDoesNotLoop(t *testing.T) {
 	}
 	if _, _, _, known := counts.values(key, 0, true); known {
 		t.Fatal("failed count published as exact")
+	}
+}
+
+// Ranks combine earlier chunks' counts with one scan of the target's chunk;
+// dense chunks resolve only the selected rank.
+func TestStatusCountsRanksAcrossChunks(t *testing.T) {
+	source := countTestSource{strings.NewReader(strings.Repeat("hit hit\n", 500))}
+	key := countKey{query: "hit", end: source.Len()}
+	for _, maxOffsets := range []int64{defaultMaxChunkOffsets, 2} {
+		counts := newStatusCounts()
+		counts.chunkSize, counts.maxOffsets = 64, maxOffsets
+		target := func(index int64) int64 { return 8*(index/2) + 4*(index%2) }
+		counts.request(context.Background(), source, key, target(0), true, true)
+		result := awaitCounts(t, counts)
+		if result.err != nil || result.total != 1000 || len(result.chunks.List) < 10 {
+			t.Fatalf("chunked counts = total %d, %d chunks, %v", result.total, len(result.chunks.List), result.err)
+		}
+		for _, index := range []int64{0, 1, 157, 500, 999} {
+			counts.request(context.Background(), source, key, target(index), true, true)
+			if counts.running {
+				awaitCounts(t, counts)
+			}
+			current, total, known, totalKnown := counts.values(key, target(index), true)
+			if !known || !totalKnown || current != index+1 || total != 1000 {
+				t.Fatalf("max offsets %d: rank of %d = %d/%d known %v", maxOffsets, index, current, total, known)
+			}
+			if chunks, ok := counts.chunksFor(key); !ok || chunks.Total() != 1000 {
+				t.Fatal("exact chunk index unavailable for search")
+			}
+		}
+		// A selected offset that is not a match ranks zero, without rescanning.
+		counts.request(context.Background(), source, key, target(10)+1, true, true)
+		if counts.running {
+			awaitCounts(t, counts)
+		}
+		counts.request(context.Background(), source, key, target(10)+1, true, true)
+		if counts.running {
+			t.Fatal("non-match repeatedly rescanned")
+		}
+		if current, _, known, _ := counts.values(key, target(10)+1, true); current != 0 || !known {
+			t.Fatalf("non-match rank = %d, known %v", current, known)
+		}
+		stale := key
+		stale.end--
+		if _, ok := counts.chunksFor(stale); ok {
+			t.Fatal("chunk index offered for a different snapshot")
+		}
+		counts.close()
+	}
+}
+
+// Appends reuse settled chunks: only the open tail is rescanned.
+func TestStatusCountsAppendRescansTail(t *testing.T) {
+	doc := pager.NewDocument()
+	defer doc.Close()
+	doc.Write([]byte(strings.Repeat("hit\n", 1000)))
+	counts := newStatusCounts()
+	defer counts.close()
+	counts.chunkSize = 256
+	key := countKey{query: "hit", end: doc.Len()}
+	counts.request(context.Background(), doc, key, 0, false, true)
+	before := awaitCounts(t, counts).chunks.List
+	doc.Write([]byte("hi"))
+	doc.Write([]byte("t\n"))
+	key.end = doc.Len()
+	counts.next = time.Time{}
+	counts.request(context.Background(), doc, key, 0, false, true)
+	after := awaitCounts(t, counts)
+	if after.total != 1001 {
+		t.Fatalf("appended total = %d", after.total)
+	}
+	for i := range before[:len(before)-1] {
+		if after.chunks.List[i] != before[i] {
+			t.Fatalf("settled chunk %d changed: %+v -> %+v", i, before[i], after.chunks.List[i])
+		}
 	}
 }

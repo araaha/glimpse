@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -14,29 +16,48 @@ type countKey struct {
 	base, end     int64
 }
 
-type rankedMatch struct{ offset, rank int64 }
+// Dense chunks only resolve the selected rank instead of retaining offsets.
+const defaultMaxChunkOffsets = 1 << 16
 
-// A bounded neighborhood, plus the ends, makes n/N and wraparound inexpensive
-// without retaining an offset (or Go object) for every match in a huge file.
+// countResult is an immutable per-chunk match index for a snapshot, plus the
+// match offsets of the chunk holding the last requested target.
 type countResult struct {
-	key           countKey
-	generation    uint64
-	total         int64
-	target        int64
-	first, last   [32]rankedMatch
-	before, after [64]rankedMatch
-	err           error
+	key        countKey
+	generation uint64
+	chunks     search.Chunks
+	total      int64
+	target     int64
+	rankChunk  int     // Chunk whose matches below resolve ranks, or -1.
+	offsets    []int64 // All match starts in rankChunk, when not too dense.
+	within     int64   // Rank of target within rankChunk; 0 if not a match.
+	rankKnown  bool
+	err        error
 }
 
+// rank returns the one-based ordinal of a match start, and whether it is known.
+// Offsets that are not matches rank 0.
 func (r *countResult) rank(offset int64) (int64, bool) {
-	for _, matches := range [][]rankedMatch{r.first[:], r.last[:], r.before[:], r.after[:]} {
-		for _, match := range matches {
-			if match.rank > 0 && match.offset == offset {
-				return match.rank, true
-			}
-		}
+	c := r.chunks.Find(offset)
+	if c < 0 {
+		return 0, true
 	}
-	return 0, false
+	if c != r.rankChunk {
+		return 0, false
+	}
+	if r.offsets != nil {
+		i := sort.Search(len(r.offsets), func(i int) bool { return r.offsets[i] >= offset })
+		if i == len(r.offsets) || r.offsets[i] != offset {
+			return 0, true
+		}
+		return r.chunks.Before(c) + int64(i) + 1, true
+	}
+	if !r.rankKnown || offset != r.target {
+		return 0, false
+	}
+	if r.within == 0 {
+		return 0, true
+	}
+	return r.chunks.Before(c) + r.within, true
 }
 
 type countSnapshot struct {
@@ -58,9 +79,13 @@ type statusCounts struct {
 	task       countKey
 	last       *countResult
 	next       time.Time
+	chunkSize  int64 // search.DefaultChunkSize when zero.
+	maxOffsets int64
 }
 
-func newStatusCounts() *statusCounts { return &statusCounts{results: make(chan countResult, 1)} }
+func newStatusCounts() *statusCounts {
+	return &statusCounts{results: make(chan countResult, 1), maxOffsets: defaultMaxChunkOffsets}
+}
 
 func (s *statusCounts) stop() {
 	if s.cancel != nil {
@@ -74,7 +99,16 @@ func (s *statusCounts) stop() {
 func (s *statusCounts) close() { s.stop(); s.workers.Wait() }
 
 func sameCountQuery(a, b countKey) bool {
-	return a.query == b.query && a.smart == b.smart && a.ignore == b.ignore && a.base == b.base
+	return a.query == b.query && a.smart == b.smart && a.ignore == b.ignore
+}
+
+// chunksFor returns the exact chunk index for a snapshot, if one is ready, so
+// searches can skip chunks without matches.
+func (s *statusCounts) chunksFor(key countKey) (search.Chunks, bool) {
+	if s.last == nil || s.last.key != key || s.last.err != nil || key.query == "" {
+		return search.Chunks{}, false
+	}
+	return s.last.chunks, true
 }
 
 func (s *statusCounts) request(ctx context.Context, source search.Source, key countKey, target int64, matched, enabled bool) {
@@ -85,46 +119,42 @@ func (s *statusCounts) request(ctx context.Context, source search.Source, key co
 		return
 	}
 	if s.running {
-		if sameCountQuery(s.task, key) {
+		if sameCountQuery(s.task, key) && s.task.base == key.base {
 			return
 		} // Let an append-only snapshot finish.
 		s.stop()
 	}
+	var previous search.Chunks
 	if s.last != nil && s.last.key == key {
-		_, cached := s.last.rank(target)
-		if !matched || cached || s.last.target == target || s.last.total == 0 || s.last.err != nil {
+		if s.last.err != nil || !matched {
 			return
 		}
+		if _, known := s.last.rank(target); known {
+			return
+		}
+		previous = s.last.chunks // Only the target's chunk needs scanning.
+	} else if s.last != nil && sameCountQuery(s.last.key, key) && s.last.err == nil {
+		// Limit recounts of a continuously growing stream. Each one only
+		// rescans the open tail and the selected match's chunk.
+		if time.Now().Before(s.next) {
+			return
+		}
+		previous = s.last.chunks
 	}
-	// Limit repeated whole-snapshot counts on a continuously growing stream.
-	if s.last != nil && sameCountQuery(s.last.key, key) && s.last.key != key && time.Now().Before(s.next) {
-		return
-	}
-	s.stop()
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.running, s.task = true, key
-	generation := s.generation
+	generation, chunkSize, maxOffsets := s.generation, s.chunkSize, s.maxOffsets
 	s.workers.Add(1)
 	go func() {
 		defer s.workers.Done()
-		result := countResult{key: key, generation: generation, target: target}
-		afterCount := 0
-		result.err = search.Walk(ctx, countSnapshot{Source: source, key: key}, key.query, key.base, key.end, key.smart, key.ignore, func(offset, end int64) bool {
-			result.total++
-			match := rankedMatch{offset, result.total}
-			if result.total <= int64(len(result.first)) {
-				result.first[result.total-1] = match
-			}
-			result.last[result.total%int64(len(result.last))] = match
-			if offset <= target {
-				result.before[result.total%int64(len(result.before))] = match
-			}
-			if offset >= target && afterCount < len(result.after) {
-				result.after[afterCount] = match
-				afterCount++
-			}
-			return true
-		})
+		result := countResult{key: key, generation: generation, target: target, rankChunk: -1}
+		source := countSnapshot{Source: source, key: key}
+		options := search.Options{Query: key.query, SmartCase: key.smart, IgnoreCase: key.ignore, ChunkSize: chunkSize, Workers: max(1, runtime.GOMAXPROCS(0)-1)}
+		result.chunks, result.err = search.UpdateChunks(ctx, source, previous, key.base, key.end, options)
+		result.total = result.chunks.Total()
+		if result.err == nil && matched {
+			result.err = result.resolveRank(ctx, source, maxOffsets)
+		}
 		select {
 		case s.results <- result:
 		case <-ctx.Done():
@@ -132,13 +162,40 @@ func (s *statusCounts) request(ctx context.Context, source search.Source, key co
 	}()
 }
 
-// update requests totals for the visible counter. Match navigation takes
-// priority over a new whole-file scan: a compatible count may finish, but
-// obsolete work is stopped.
+// resolveRank scans only the chunk containing the target.
+func (r *countResult) resolveRank(ctx context.Context, source search.Source, maxOffsets int64) error {
+	c := r.chunks.Find(r.target)
+	if c < 0 {
+		return nil
+	}
+	chunk := r.chunks.List[c]
+	r.rankChunk = c
+	if chunk.Count <= maxOffsets {
+		r.offsets = make([]int64, 0, chunk.Count)
+		return search.WalkRange(ctx, source, r.key.query, chunk.Start, chunk.End-1, r.key.end, r.key.smart, r.key.ignore, func(offset, _ int64) bool {
+			r.offsets = append(r.offsets, offset)
+			return true
+		})
+	}
+	var seen int64
+	err := search.WalkRange(ctx, source, r.key.query, chunk.Start, r.target, r.key.end, r.key.smart, r.key.ignore, func(offset, _ int64) bool {
+		seen++
+		if offset == r.target {
+			r.within = seen
+		}
+		return true
+	})
+	r.rankKnown = err == nil
+	return err
+}
+
+// update requests counts for the visible counter. Match navigation takes
+// priority over a new scan: a compatible count may finish, but obsolete work
+// is stopped.
 func (s *statusCounts) update(ctx context.Context, source search.Source, key countKey, target int64, matched, navigating bool) {
 	if !navigating {
 		s.request(ctx, source, key, target, matched, s.visible)
-	} else if s.running && (!s.visible || !sameCountQuery(s.task, key)) {
+	} else if s.running && (!s.visible || !sameCountQuery(s.task, key) || s.task.base != key.base) {
 		s.stop()
 	}
 }
@@ -162,9 +219,9 @@ func (s *statusCounts) values(key countKey, target int64, matched bool) (current
 	if s.last == nil || s.last.key != key || s.last.err != nil {
 		return 0, 0, !matched, false
 	}
-	current, currentKnown = s.last.rank(target)
-	if !matched || !currentKnown && (s.last.target == target || s.last.total == 0) {
-		current, currentKnown = 0, true
+	if !matched {
+		return 0, s.last.total, true, true
 	}
+	current, currentKnown = s.last.rank(target)
 	return current, s.last.total, currentKnown, true
 }

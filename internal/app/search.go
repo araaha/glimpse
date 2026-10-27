@@ -93,7 +93,9 @@ func (s *searchState) echoQuery() string {
 	return "/" + s.query
 }
 
-func (s *searchState) start(ctx context.Context, source search.Source, origin, anchor int64, backward, smartCase, ignoreCase, include bool) {
+// start searches in the background. With an exact chunk index for the current
+// snapshot, chunks without matches are skipped instead of scanned.
+func (s *searchState) start(ctx context.Context, source search.Source, chunks search.Chunks, indexed bool, origin, anchor int64, backward, smartCase, ignoreCase, include bool) {
 	repeats := s.repeats
 	s.stop()
 	s.repeats, s.busy = repeats, true
@@ -103,7 +105,13 @@ func (s *searchState) start(ctx context.Context, source search.Source, origin, a
 	s.workers.Add(1)
 	go func() {
 		defer s.workers.Done()
-		result, err := search.FindFrom(ctx, source, query, origin, anchor, backward, smartCase, ignoreCase, include)
+		var result search.Result
+		var err error
+		if indexed {
+			result, err = search.FindInChunks(ctx, source, query, chunks, origin, anchor, backward, smartCase, ignoreCase, include)
+		} else {
+			result, err = search.FindFrom(ctx, source, query, origin, anchor, backward, smartCase, ignoreCase, include)
+		}
 		select {
 		case s.results <- searchResponse{generation, result, err}:
 		case <-ctx.Done():
