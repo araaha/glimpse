@@ -72,6 +72,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var previousIndexed int64 = -1
 	pendingLine := 0
 	var pendingOffset int64
+	var bottomEnd int64
 	hasPendingOffset, wantBottom := false, false
 	previousPaused := false
 	var deadline time.Time
@@ -80,7 +81,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	updateText := func() error {
 		anchor := text.Offset(view.top)
 		reflow := indexedWidth != layout.Body.Width
-		if reflow && indexedWidth != 0 && pendingLine == 0 && !hasPendingOffset {
+		if reflow && indexedWidth != 0 && pendingLine == 0 && !hasPendingOffset && !wantBottom {
 			pendingOffset, hasPendingOffset = anchor, true
 		}
 		if text.NeedsUpdate(layout.Body.Width, !reading) {
@@ -102,17 +103,21 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			view.top = text.RowAt(pendingOffset)
 			hasPendingOffset = false
 		}
-		if wantBottom {
-			view.bottom = true
-			if !pending {
-				wantBottom = false
-			}
-		}
 		return nil
 	}
 	scheduleIndex := func() {
 		if text.NeedsUpdate(layout.Body.Width, !reading) {
 			indexWork.Reset(0)
+		}
+	}
+	jumpBottom := func() {
+		pendingLine, hasPendingOffset = 0, false
+		view.follow, view.bottom = false, false
+		wantBottom = text.NeedsUpdate(layout.Body.Width, !reading)
+		if wantBottom {
+			bottomEnd = a.Document.Len()
+		} else {
+			view.apply(keybind.Bottom, text.RowCount(), layout.Body.Height)
 		}
 	}
 
@@ -122,6 +127,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		layout = a.UI.Layout(screen.Size())
 		if err := updateText(); err != nil {
 			return err
+		}
+		if wantBottom && (text.Indexed() >= bottomEnd || !text.NeedsUpdate(layout.Body.Width, !reading)) {
+			// Resolve only with the final layout, just before painting. G targets
+			// the input available when requested, not each successive indexed tail.
+			rows := min(text.RowCount(), text.RowAt(max(0, bottomEnd-1))+1)
+			view.top = max(0, rows-max(1, layout.Body.Height))
+			view.bottom, wantBottom = false, false
 		}
 		anchor := text.Offset(view.top)
 		view.reflow(text.RowAt(anchor), text.RowCount(), layout.Body.Height, length != previousLength || text.RowCount() != previousRows || text.Indexed() != previousIndexed)
@@ -141,6 +153,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		if text.NeedsUpdate(layout.Body.Width, !reading) {
 			state += "  indexing"
+		}
+		if wantBottom {
+			state += "  seeking end"
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
 		frame := ui.Frame{Layout: layout, Lines: lines, Styled: text.Styled(), Status: status, Search: search.message, WideAmbiguous: a.wideAmbiguous}
@@ -241,12 +256,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			} else if action == keybind.Bottom && command.Count > 0 {
 				pendingLine, hasPendingOffset, wantBottom = command.Count, false, false
 				view.follow, view.bottom = false, false
+			} else if action == keybind.Bottom {
+				jumpBottom()
 			} else {
 				pendingLine, hasPendingOffset, wantBottom = 0, false, false
 				view.apply(action, text.RowCount(), layout.Body.Height)
-				if action == keybind.Bottom {
-					wantBottom = text.NeedsUpdate(layout.Body.Width, !reading)
-				}
 			}
 			search.stop()
 			search.matched, search.message = false, ""
@@ -314,10 +328,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 							pendingLine, hasPendingOffset, wantBottom = result.line, false, false
 						} else if result.action != "" {
 							search.matched = false
-							pendingLine, hasPendingOffset, wantBottom = 0, false, false
-							view.apply(result.action, text.RowCount(), layout.Body.Height)
 							if result.action == keybind.Bottom {
-								wantBottom = text.NeedsUpdate(layout.Body.Width, !reading)
+								jumpBottom()
+							} else {
+								pendingLine, hasPendingOffset, wantBottom = 0, false, false
+								view.apply(result.action, text.RowCount(), layout.Body.Height)
 							}
 						}
 						if query != "" {
