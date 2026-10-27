@@ -239,8 +239,9 @@ func openInput(stdin io.Reader, args []string) (io.ReadCloser, string, error) {
 	if file, ok := stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
 		return nil, "", fmt.Errorf("provide a file or pipe input into glimpse")
 	}
+	// Stdin has no name; the statusline omits its filename section.
 	if input, ok := stdin.(io.ReadCloser); ok {
-		return input, "stdin", nil
+		return input, "", nil
 	}
-	return io.NopCloser(stdin), "stdin", nil
+	return io.NopCloser(stdin), "", nil
 }

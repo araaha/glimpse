@@ -54,6 +54,7 @@ type statusCounts struct {
 	cancel     context.CancelFunc
 	generation uint64
 	running    bool
+	visible    bool // The statusline currently shows the search counter.
 	task       countKey
 	last       *countResult
 	next       time.Time
@@ -129,6 +130,22 @@ func (s *statusCounts) request(ctx context.Context, source search.Source, key co
 		case <-ctx.Done():
 		}
 	}()
+}
+
+// update requests totals for the visible counter. Match navigation takes
+// priority over a new whole-file scan: a compatible count may finish, but
+// obsolete work is stopped.
+func (s *statusCounts) update(ctx context.Context, source search.Source, key countKey, target int64, matched, navigating bool) {
+	if !navigating {
+		s.request(ctx, source, key, target, matched, s.visible)
+	} else if s.running && (!s.visible || !sameCountQuery(s.task, key)) {
+		s.stop()
+	}
+}
+
+// recountDue reports whether a throttled recount of grown input may start.
+func (s *statusCounts) recountDue(now time.Time, end int64) bool {
+	return s.visible && !s.running && s.last != nil && s.last.key.end != end && !now.Before(s.next)
 }
 
 func (s *statusCounts) accept(result countResult) bool {

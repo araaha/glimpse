@@ -192,7 +192,7 @@ func TestOpenInput(t *testing.T) {
 		}
 		data, err := io.ReadAll(input)
 		input.Close()
-		if err != nil || name != "stdin" || string(data) != "pipe data" {
+		if err != nil || name != "" || string(data) != "pipe data" {
 			t.Fatalf("stdin input = (%q, %q, %v)", data, name, err)
 		}
 	}

@@ -135,16 +135,14 @@ func TestRunStatuslineSelectionAndHighlightConfiguration(t *testing.T) {
 
 func TestRunStatuslineOmitsStdinAndHandlesEmptyInput(t *testing.T) {
 	for _, input := range []string{"one\ntwo", ""} {
-		viewer := startNamedTestViewer(t, Options{}, input, "stdin", 50, 4)
+		viewer := startNamedTestViewer(t, Options{}, input, "", 50, 4)
 		viewer.press("=")
 		frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.StatusState.TotalLinesKnown })
 		if frame.StatusState.Filename != "" || strings.Contains(frame.Status, "stdin") {
 			t.Fatalf("stdin filename displayed: %q", frame.Status)
 		}
-		for _, span := range frame.StatusBar.Spans {
-			if span.Section == ui.StatusFilename {
-				t.Fatal("empty filename has a section")
-			}
+		if frame.StatusBar.Has(ui.StatusFilename) {
+			t.Fatal("empty filename has a section")
 		}
 		if input == "" && (frame.StatusState.TopLine != 0 || frame.StatusState.TotalLines != 0) {
 			t.Fatalf("empty input lines = %+v", frame.StatusState)

@@ -284,6 +284,16 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 	return bar
 }
 
+// Has reports whether a section survived formatting and is visible.
+func (b *StatusBar) Has(section string) bool {
+	for _, span := range b.Spans {
+		if span.Section == section {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *StatusBar) Text() string {
 	var out strings.Builder
 	column := 0

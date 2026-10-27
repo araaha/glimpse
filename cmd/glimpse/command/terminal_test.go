@@ -128,7 +128,7 @@ func TestInteractiveCommandAllowsPipedInput(t *testing.T) {
 		defer input.Close()
 		called = true
 		data, err := io.ReadAll(input)
-		if err != nil || string(data) != "piped input" || name != "stdin" {
+		if err != nil || string(data) != "piped input" || name != "" {
 			t.Fatalf("input = (%q, %q, %v)", data, name, err)
 		}
 		return nil

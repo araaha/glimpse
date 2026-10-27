@@ -765,7 +765,7 @@ func TestRunStreamsScrollsAndTogglesStatus(t *testing.T) {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		result <- application.run(ctx, input, "stdin", screen)
+		result <- application.run(ctx, input, "", screen)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -848,7 +848,7 @@ func TestRunFollowsAndCtrlCQuitsPendingSequence(t *testing.T) {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		result <- application.run(ctx, input, "stdin", screen)
+		result <- application.run(ctx, input, "", screen)
 	}()
 	t.Cleanup(func() {
 		cancel()

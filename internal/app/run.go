@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"glimpse/internal/keybind"
@@ -19,7 +18,8 @@ const sequenceTimeout = 90 * time.Millisecond
 const indexSlice = 2 * time.Millisecond
 
 // Run owns input and the terminal until quit, cancellation, or an error. Closing
-// input must unblock a pending Read (as it does for files and pipes).
+// input must unblock a pending Read (as it does for files and pipes). name labels
+// the input in the statusline and is empty for stdin.
 func (a *App) Run(ctx context.Context, input io.ReadCloser, name string) error {
 	// Optional capability probing can wait up to a second for a terminal reply.
 	// Known terminal profiles and standard keyboard reporting suffice for now.
@@ -68,14 +68,6 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	defer search.close()
 	counts := newStatusCounts()
 	defer counts.close()
-	countsVisible := false
-	filename := name
-	if name == "stdin" {
-		filename = ""
-		if file, ok := input.(*os.File); ok && file != os.Stdin && file.Name() == "stdin" {
-			filename = name
-		}
-	}
 	view := viewState{follow: a.follow}
 	reading, dirty := true, true
 	var previousLength int64 = -1
@@ -84,8 +76,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	pendingLine := 0
 	var pendingOffset int64
 	var bottomEnd int64
-	hasPendingOffset, wantBottom := false, false
-	searchJumpPending := false
+	// pendingSearch marks a pending offset as a search match, not a reflow anchor.
+	hasPendingOffset, wantBottom, pendingSearch := false, false, false
 	previousPaused := false
 	var deadline time.Time
 	pasting := false
@@ -98,8 +90,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		anchor := text.Offset(view.top)
 		reflow := indexedWidth != layout.Body.Width
 		if reflow && indexedWidth != 0 && pendingLine == 0 && !hasPendingOffset && !wantBottom {
-			pendingOffset, hasPendingOffset = anchor, true
-			searchJumpPending = false
+			pendingOffset, hasPendingOffset, pendingSearch = anchor, true, false
 		}
 		if text.NeedsUpdate(layout.Body.Width, !reading) {
 			if err := text.UpdateFor(layout.Body.Width, !reading, indexSlice); err != nil {
@@ -119,7 +110,6 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if hasPendingOffset && (pendingOffset < text.Indexed() || !pending) {
 			view.top = text.RowAt(pendingOffset)
 			hasPendingOffset = false
-			searchJumpPending = false
 		}
 		return nil
 	}
@@ -155,9 +145,10 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		anchor := text.Offset(view.top)
 		view.reflow(text.RowAt(anchor), text.RowCount(), layout.Body.Height, length != previousLength || text.RowCount() != previousRows || text.Indexed() != previousIndexed)
+		top := text.Offset(view.top)
 		// While G is pending, only progress/status changes. Reuse an already
 		// complete, immutable starting viewport instead of decoding it at 60 Hz.
-		cachedBody := wantBottom && bodyLayout == layout && bodyOffset == text.Offset(view.top) && bodyBase == discarded && view.top+layout.Body.Height < previousRows
+		cachedBody := wantBottom && bodyLayout == layout && bodyOffset == top && bodyBase == discarded && view.top+layout.Body.Height < previousRows
 		lines, styled := bodyLines, bodyStyled
 		if !cachedBody {
 			lines, err = text.Lines(view.top, layout.Body.Height)
@@ -170,43 +161,25 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			styled = text.Styled()
 		}
 		indexing := text.NeedsUpdate(layout.Body.Width, !reading)
-		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len()}
-		target := text.Offset(view.top)
+		target := top
 		if search.matched {
 			target = search.match
 		}
-		current, total, currentKnown, totalKnown := counts.values(key, target, search.matched)
+		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len()}
 		state := ui.StatusState{
-			Mode: "VIEW", Filename: filename,
-			HasSearch: search.query != "", SearchCurrent: current, SearchTotal: total,
-			SearchCurrentKnown: currentKnown, SearchTotalKnown: totalKnown,
-			TopLine: text.LogicalLineAt(text.Offset(view.top)), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
+			Mode: "VIEW", Filename: name, HasSearch: search.query != "",
+			TopLine: text.LogicalLineAt(top), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
 		}
-		if view.follow {
+		state.SearchCurrent, state.SearchTotal, state.SearchCurrentKnown, state.SearchTotalKnown = counts.values(key, target, search.matched)
+		switch {
+		case search.busy || search.prompt != nil && !search.prompt.command || pendingSearch && hasPendingOffset:
+			state.Mode = "SEARCH"
+		case view.follow:
 			state.Mode = "FOLLOW"
 		}
-		if search.busy || search.prompt != nil && !search.prompt.command || searchJumpPending && hasPendingOffset {
-			state.Mode = "SEARCH"
-		}
 		bar := a.Statusline.Format(state, layout.Body.Width, a.wideAmbiguous)
-		countsVisible = false
-		if layout.StatusRow >= 0 {
-			for _, span := range bar.Spans {
-				if span.Section == ui.StatusSearchResults {
-					countsVisible = true
-					break
-				}
-			}
-		}
-		if search.busy || hasPendingOffset {
-			// Match navigation takes priority over a new whole-file totals scan.
-			// An existing compatible count may finish, but obsolete work is stopped.
-			if counts.running && (!countsVisible || !sameCountQuery(counts.task, key)) {
-				counts.stop()
-			}
-		} else {
-			counts.request(ctx, a.Document, key, target, search.matched, countsVisible)
-		}
+		counts.visible = layout.StatusRow >= 0 && bar.Has(ui.StatusSearchResults)
+		counts.update(ctx, a.Document, key, target, search.matched, search.busy || hasPendingOffset)
 		frame := ui.Frame{
 			Layout: layout, Lines: lines, Styled: styled,
 			Status: bar.Text(), StatusBar: bar, StatusState: state,
@@ -238,7 +211,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return err
 		}
 		bodyLines, bodyStyled, bodyLayout = lines, styled, layout
-		bodyOffset, bodyBase = text.Offset(view.top), discarded
+		bodyOffset, bodyBase = top, discarded
 		previousLength = length
 		previousRows, previousIndexed = text.RowCount(), text.Indexed()
 		previousPaused = paused
@@ -492,12 +465,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				search.matched = false
 			} else {
 				search.match, search.matched = response.result.Offset, true
-				pendingOffset, hasPendingOffset, pendingLine, wantBottom = search.match, true, 0, false
+				pendingOffset, hasPendingOffset, pendingSearch, pendingLine, wantBottom = search.match, true, true, 0, false
 				if search.match < text.Indexed() {
 					view.top = text.RowAt(search.match)
 					hasPendingOffset = false
 				}
-				searchJumpPending = hasPendingOffset
 				view.follow, view.bottom = false, false
 				search.message = "/" + search.query
 				if search.backward {
@@ -562,7 +534,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 		case now := <-tick.C:
 			// A throttled recount may become due even when the viewport is idle.
-			if countsVisible && counts.last != nil && counts.last.key.end != a.Document.Len() && !counts.running && !search.busy && !now.Before(counts.next) && search.query != "" {
+			if !search.busy && search.query != "" && counts.recountDue(now, a.Document.Len()) {
 				dirty = true
 			}
 			if search.prompt != nil && a.SearchKeys.NeedsTimeout() && !now.Before(deadline) {
