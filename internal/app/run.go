@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"glimpse/internal/keybind"
@@ -64,7 +65,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	}
 	defer func() { runErr = errors.Join(runErr, text.Close()) }()
 	text.SetWideAmbiguous(a.wideAmbiguous)
-	search := searchState{results: make(chan searchResponse, 1)}
+	search := searchState{results: make(chan searchResponse, 1), echo: a.UI.CmdHeight() != ui.CmdHeightToggle}
 	defer search.close()
 	counts := newStatusCounts()
 	defer counts.close()
@@ -471,16 +472,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 					hasPendingOffset = false
 				}
 				view.follow, view.bottom = false, false
-				search.message = "/" + search.query
-				if search.backward {
-					search.message = "?" + search.query
-				}
-				if response.result.Wrapped {
+				search.message = search.echoQuery()
+				if response.result.Wrapped && search.echo {
 					search.message += "  [wrapped]"
 				}
 			}
 			if search.warning != "" {
-				search.message += "  [" + search.warning + "]"
+				search.message = strings.TrimSpace(search.message + "  [" + search.warning + "]")
 			}
 			if response.err == nil && response.result.Found && len(search.repeats) > 0 {
 				backward := search.repeats[0]

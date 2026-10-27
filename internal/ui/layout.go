@@ -47,6 +47,8 @@ func NewModel(cmdHeight CmdHeight) (*Model, error) {
 	return &Model{cmdHeight: cmdHeight, statusVisible: true}, nil
 }
 
+func (m *Model) CmdHeight() CmdHeight { return m.cmdHeight }
+
 // ToggleStatusline only changes visibility in mode -1. Modes 0 and 1 always
 // reserve their footer rows, except when no terminal space is available.
 func (m *Model) ToggleStatusline() {

@@ -33,6 +33,7 @@ type searchState struct {
 	repeats        []bool // Directions queued while a worker is resolving a match.
 	message        string
 	warning        string
+	echo           bool // Repeat the query in the footer; mode -1 shows status instead.
 	generation     uint64
 	cancel         context.CancelFunc
 	workers        sync.WaitGroup
@@ -80,13 +81,25 @@ func (s *searchState) begin(backward bool) {
 	s.message = ""
 }
 
+// echoQuery is the footer text for the current query: its direction prefix and
+// text, or nothing when the statusline alone reports search progress.
+func (s *searchState) echoQuery() string {
+	if !s.echo {
+		return ""
+	}
+	if s.backward {
+		return "?" + s.query
+	}
+	return "/" + s.query
+}
+
 func (s *searchState) start(ctx context.Context, source search.Source, origin, anchor int64, backward, smartCase, ignoreCase, include bool) {
 	repeats := s.repeats
 	s.stop()
 	s.repeats, s.busy = repeats, true
 	ctx, s.cancel = context.WithCancel(ctx)
 	generation, query := s.generation, s.query
-	s.message = "Searching…"
+	s.message = s.echoQuery()
 	s.workers.Add(1)
 	go func() {
 		defer s.workers.Done()
