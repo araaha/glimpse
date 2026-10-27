@@ -87,6 +87,10 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var bodyStyled [][]ui.Glyph
 	var bodyLayout ui.Layout
 	var bodyOffset, bodyBase int64
+	// jumpTop places row at the jump target; the view never starts above row 0.
+	jumpTop := func(row int) int {
+		return max(0, row-a.JumpTarget.Row(layout.Body.Height))
+	}
 	updateText := func() error {
 		anchor := text.Offset(view.top)
 		reflow := indexedWidth != layout.Body.Width
@@ -105,11 +109,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		pending := text.NeedsUpdate(layout.Body.Width, !reading)
 		if pendingLine > 0 && (pendingLine <= text.LineCount() || !pending) {
-			view.top = text.LineRow(pendingLine)
+			view.top = jumpTop(text.LineRow(pendingLine))
 			pendingLine = 0
 		}
 		if hasPendingOffset && (pendingOffset < text.Indexed() || !pending) {
 			view.top = text.RowAt(pendingOffset)
+			if pendingSearch {
+				view.top = jumpTop(view.top)
+			}
 			hasPendingOffset = false
 		}
 		return nil
@@ -265,7 +272,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				if search.query == "" {
 					search.message = "No previous search"
 				} else {
-					origin, include := text.Offset(view.top), true
+					// Without a selected match, repeat from the jump target row.
+					origin, include := text.Offset(view.top+a.JumpTarget.Row(layout.Body.Height)), true
 					if search.matched {
 						origin, include = search.match, false
 					}
@@ -473,7 +481,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				search.match, search.matched = response.result.Offset, true
 				pendingOffset, hasPendingOffset, pendingSearch, pendingLine, wantBottom = search.match, true, true, 0, false
 				if search.match < text.Indexed() {
-					view.top = text.RowAt(search.match)
+					view.top = jumpTop(text.RowAt(search.match))
 					hasPendingOffset = false
 				}
 				view.follow, view.bottom = false, false

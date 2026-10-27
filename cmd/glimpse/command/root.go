@@ -121,6 +121,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().String("retention", "lossless", "stream retention: lossless or rolling (explicit history loss)")
 	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
 	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
+	root.Flags().StringP("jump-target", "j", "1", "screen line for search matches and line jumps: 1 is the top, -1 the bottom, .5 the middle")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
 	return root
 }
@@ -139,6 +140,9 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse follow: %w", err)
 	}
 	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow}
+	if options.JumpTarget, err = app.ParseJumpTarget(config.GetString("jump-target")); err != nil {
+		return app.Options{}, err
+	}
 	options.AmbiguousWidth, err = strconv.Atoi(config.GetString("display.ambiguous-width"))
 	if err != nil || options.AmbiguousWidth != 1 && options.AmbiguousWidth != 2 {
 		return app.Options{}, fmt.Errorf("ambiguous-width must be 1 or 2")

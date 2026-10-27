@@ -144,6 +144,49 @@ func TestSearchCaseConfiguration(t *testing.T) {
 	}
 }
 
+func TestJumpTargetConfiguration(t *testing.T) {
+	for _, tt := range []struct {
+		name, config, env, wantErr string
+		args                       []string
+		want                       app.JumpTarget
+	}{
+		{name: "default", want: app.JumpTarget{Line: 1}},
+		{name: "short flag", args: []string{"-j4"}, want: app.JumpTarget{Line: 4}},
+		{name: "long flag fraction", args: []string{"--jump-target=.5"}, want: app.JumpTarget{Fraction: .5}},
+		{name: "negative flag", args: []string{"-j", "-2"}, want: app.JumpTarget{Line: -2}},
+		{name: "TOML integer", config: "jump-target = -3\n", want: app.JumpTarget{Line: -3}},
+		{name: "TOML float", config: "jump-target = 0.25\n", want: app.JumpTarget{Fraction: .25}},
+		{name: "TOML string", config: "jump-target = '.5'\n", want: app.JumpTarget{Fraction: .5}},
+		{name: "environment overrides TOML", config: "jump-target = 2\n", env: "5", want: app.JumpTarget{Line: 5}},
+		{name: "flag overrides environment", env: "5", args: []string{"-j6"}, want: app.JumpTarget{Line: 6}},
+		{name: "zero", args: []string{"-j0"}, wantErr: "nonzero"},
+		{name: "fraction out of range", config: "jump-target = 1.5\n", wantErr: "fraction"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", dir)
+			t.Setenv("GLIMPSE_JUMP_TARGET", tt.env)
+			path := filepath.Join(dir, "test.toml")
+			if err := os.WriteFile(path, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			root := newRoot(func(_ context.Context, application *app.App, input io.ReadCloser, _ string) error {
+				defer input.Close()
+				if application.JumpTarget != tt.want {
+					t.Fatalf("JumpTarget = %+v, want %+v", application.JumpTarget, tt.want)
+				}
+				return nil
+			}, nil)
+			root.SetIn(strings.NewReader(""))
+			root.SetArgs(append([]string{"--config", path}, tt.args...))
+			err := root.Execute()
+			if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestRootLoadsFileAndKeySequence(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

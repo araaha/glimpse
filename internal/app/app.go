@@ -29,6 +29,7 @@ type Options struct {
 	AmbiguousWidth    int
 	Statusline        ui.StatuslineConfig
 	SearchHighlight   ui.Colors
+	JumpTarget        JumpTarget
 }
 
 // App coordinates asynchronous ingestion with viewport-sized rendering.
@@ -47,6 +48,7 @@ type App struct {
 	follow                        bool
 	Statusline                    *ui.Statusline
 	SearchHighlight               tcell.Style
+	JumpTarget                    JumpTarget
 }
 
 // New creates document storage and view state without initializing a terminal.
@@ -118,6 +120,7 @@ func New(options Options) (*App, error) {
 		follow:            options.Follow,
 		Statusline:        statusline,
 		SearchHighlight:   highlight,
+		JumpTarget:        options.JumpTarget,
 	}, nil
 }
 

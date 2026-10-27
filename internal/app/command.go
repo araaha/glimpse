@@ -47,6 +47,14 @@ func (a *App) command(input string) (commandResult, error) {
 			}
 			return commandResult{message: fmt.Sprintf("spool-quota=%d", quota)}, nil
 		}
+		if name == "jump-target" && explicit {
+			target, err := ParseJumpTarget(value)
+			if err != nil {
+				return commandResult{}, err
+			}
+			a.JumpTarget = target
+			return commandResult{message: "jump-target=" + target.String()}, nil
+		}
 		enabled := true
 		if explicit {
 			var err error
