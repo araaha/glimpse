@@ -43,7 +43,7 @@ func TestAppearanceConfiguration(t *testing.T) {
 			}
 		}},
 		{name: "empty separator", config: "[statusline]\nseparator = ''\nright = []\n", check: func(t *testing.T, a *app.App) {
-			if got := a.Statusline.Format(ui.StatusState{Mode: "VIEW", Filename: "file"}, 20, false).Text(); !strings.HasPrefix(got, "VIEWfile") {
+			if got := a.Statusline.Format(ui.StatusState{Mode: "VIEW", Filename: "file"}, 20, false).Text(); !strings.HasPrefix(got, " VIEW  file ") {
 				t.Fatalf("empty separator = %q", got)
 			}
 		}},

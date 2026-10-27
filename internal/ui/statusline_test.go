@@ -22,7 +22,7 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 		t.Fatal(err)
 	}
 	bar := model.Format(testStatusState(), 80, false)
-	if !strings.HasPrefix(bar.Text(), "VIEW │ file.txt") || !strings.HasSuffix(bar.Text(), "3/27 │ 842/1200") {
+	if !strings.HasPrefix(bar.Text(), " VIEW  │  file.txt ") || !strings.HasSuffix(bar.Text(), " 3/27  │  842/1200 ") {
 		t.Fatalf("status = %q", bar.Text())
 	}
 	// Defaults are terminal palette entries, so they follow the user's theme.
@@ -31,7 +31,7 @@ func TestStatuslineDefaultLayoutAndColors(t *testing.T) {
 		text   string
 		fg, bg color.Color
 	}{
-		StatusMode: {"VIEW", black, blue}, StatusFilename: {"file.txt", blue, black}, StatusSearchResults: {"3/27", black, white}, StatusLineNumbers: {"842/1200", black, blue},
+		StatusMode: {" VIEW ", black, blue}, StatusFilename: {" file.txt ", blue, black}, StatusSearchResults: {" 3/27 ", black, white}, StatusLineNumbers: {" 842/1200 ", black, blue},
 	}
 	for _, span := range bar.Spans {
 		if span.Section == "" {
@@ -60,12 +60,12 @@ func TestStatuslineOmissionsOrderingAndInheritance(t *testing.T) {
 	state := testStatusState()
 	state.Filename, state.HasSearch = "", false
 	bar := model.Format(state, 40, false)
-	if !strings.HasPrefix(bar.Text(), "VIEW") || strings.Contains(bar.Text(), "::") || strings.Contains(bar.Text(), "3/27") {
+	if !strings.HasPrefix(bar.Text(), " VIEW ") || strings.Contains(bar.Text(), "::") || strings.Contains(bar.Text(), "3/27") {
 		t.Fatalf("omitted filename/search left separators: %q", bar.Text())
 	}
 	state.Filename = "example"
 	bar = model.Format(state, 40, false)
-	if !strings.HasPrefix(bar.Text(), "example :: VIEW") {
+	if !strings.HasPrefix(bar.Text(), " example  ::  VIEW ") {
 		t.Fatalf("configured order/separator = %q", bar.Text())
 	}
 	for _, span := range bar.Spans {
@@ -82,7 +82,7 @@ func TestStatuslineOmissionsOrderingAndInheritance(t *testing.T) {
 	}
 	separator = ""
 	joined, _ := NewStatusline(StatuslineConfig{Separator: &separator, Right: []string{}})
-	if got := joined.Format(state, 40, false).Text(); !strings.HasPrefix(got, "VIEWexample") {
+	if got := joined.Format(state, 40, false).Text(); !strings.HasPrefix(got, " VIEW  example ") {
 		t.Fatalf("empty separator = %q", got)
 	}
 }
@@ -117,15 +117,25 @@ func TestStatuslinePendingCountsAndNarrowUnicode(t *testing.T) {
 
 func TestNarrowStatuslineKeepsModeAndLinePosition(t *testing.T) {
 	model, _ := NewStatusline(StatuslineConfig{})
-	bar := model.Format(testStatusState(), 15, false)
-	seen := make(map[string]string)
-	for _, span := range bar.Spans {
-		if span.Section != "" {
-			seen[span.Section] = span.Text
+	sections := func(width int) map[string]string {
+		seen := make(map[string]string)
+		for _, span := range model.Format(testStatusState(), width, false).Spans {
+			if span.Section != "" {
+				seen[span.Section] = span.Text
+			}
 		}
+		return seen
 	}
-	if seen[StatusMode] != "VIEW" || seen[StatusLineNumbers] != "842/1200" || seen[StatusSearchResults] != "" || seen[StatusFilename] != "" {
+	// Padding is dropped before any section text is clipped or hidden.
+	if seen := sections(15); seen[StatusMode] != "VIEW" || seen[StatusLineNumbers] != "842/1200" || seen[StatusSearchResults] != "" || seen[StatusFilename] != "" {
 		t.Fatalf("narrow fields = %v", seen)
+	}
+	if seen := sections(21); seen[StatusMode] != "VIEW" || seen[StatusSearchResults] != "3/27" || seen[StatusLineNumbers] != "842/1200" {
+		t.Fatalf("unpadded fields = %v", seen)
+	}
+	// With room for padding, a shortened filename keeps it.
+	if seen := sections(36); seen[StatusMode] != " VIEW " || !strings.HasPrefix(seen[StatusFilename], " ") || !strings.HasSuffix(seen[StatusFilename], "… ") {
+		t.Fatalf("padded fields = %v", seen)
 	}
 }
 
@@ -209,11 +219,16 @@ func TestStatuslineTerminalRespectsAmbiguousWidth(t *testing.T) {
 	if err := NewTerminal(screen).Render(frame); err != nil {
 		t.Fatal(err)
 	}
-	if got, _, _ := screen.Get(2, 1); got != "X" {
+	if got, _, _ := screen.Get(3, 1); got != "X" {
 		t.Fatalf("ambiguous width shifted next character: %q", got)
 	}
-	if _, style, _ := screen.Get(1, 1); style.GetBackground() != color.NewHexColor(0x112233) {
-		t.Fatal("wide ambiguous padding lost section background")
+	for _, x := range []int{0, 1, 4} {
+		if _, style, _ := screen.Get(x, 1); style.GetBackground() != color.NewHexColor(0x112233) {
+			t.Fatalf("column %d lost section background", x)
+		}
+	}
+	if _, style, _ := screen.Get(5, 1); style.GetBackground() == color.NewHexColor(0x112233) {
+		t.Fatal("section background leaked past its padding")
 	}
 }
 
@@ -241,7 +256,7 @@ func TestStatuslineEmitsPaletteDefaultsAndHighlightRGB(t *testing.T) {
 	}
 	// Explicit hex stays RGB; defaults use normal palette SGR so they follow
 	// the terminal theme.
-	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44mVIEW", "\x1b[34m\x1b[40mfile.txt", "\x1b[30m\x1b[47m3/27"} {
+	for _, sequence := range []string{"\x1b[38;2;1;2;3;48;2;4;5;6m", "\x1b[30m\x1b[44m VIEW ", "\x1b[34m\x1b[40m file.txt ", "\x1b[30m\x1b[47m 3/27 "} {
 		if !strings.Contains(tty.output.String(), sequence) {
 			t.Fatalf("missing output %q in %q", sequence, tty.output.String())
 		}

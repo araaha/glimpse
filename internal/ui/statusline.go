@@ -198,6 +198,7 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 		total = fmt.Sprint(state.TotalLines)
 	}
 	values[StatusLineNumbers] = fmt.Sprintf("%d/%s", state.TopLine, total)
+	pad := " "
 	build := func(names []string) []StatusSpan {
 		var spans []StatusSpan
 		column := 0
@@ -211,6 +212,8 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 				spans = append(spans, StatusSpan{Column: column, Width: w, Text: s.separator, Style: s.base})
 				column += w
 			}
+			// Pad inside the span so the section background frames its text.
+			value = pad + value + pad
 			w := statusWidth(value, wide)
 			spans = append(spans, StatusSpan{Column: column, Width: w, Text: value, Section: name, Style: s.styles[name]})
 			column += w
@@ -224,25 +227,36 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 		last := spans[len(spans)-1]
 		return last.Column + last.Width
 	}
-	left, right := build(s.left), build(s.right)
-	groupWidth := func(left, right []StatusSpan) int {
+	var left, right []StatusSpan
+	groupWidth := func() int {
 		n := spanWidth(left) + spanWidth(right)
 		if len(left) > 0 && len(right) > 0 {
 			n++
 		}
 		return n
 	}
-	if overflow := groupWidth(left, right) - width; overflow > 0 {
-		// Filename is always the first field sacrificed to a narrow terminal,
-		// regardless of which side the user placed it on.
-		values[StatusFilename] = clipStatus(values[StatusFilename], statusWidth(values[StatusFilename], wide)-overflow, wide)
+	filename := values[StatusFilename]
+	fit := func() {
+		values[StatusFilename] = filename
 		left, right = build(s.left), build(s.right)
+		if overflow := groupWidth() - width; overflow > 0 {
+			// Filename is always the first field sacrificed to a narrow terminal,
+			// regardless of which side the user placed it on.
+			values[StatusFilename] = clipStatus(filename, statusWidth(filename, wide)-overflow, wide)
+			left, right = build(s.left), build(s.right)
+		}
 	}
-	if groupWidth(left, right) > width && s.Has(StatusMode) {
+	fit()
+	if groupWidth() > width {
+		// Padding is cosmetic; drop it before hiding any section.
+		pad = ""
+		fit()
+	}
+	if groupWidth() > width && s.Has(StatusMode) {
 		// Keep the mode and line position usable before sacrificing them to an
 		// optional search counter on very narrow terminals.
 		values[StatusSearchResults] = ""
-		left, right = build(s.left), build(s.right)
+		fit()
 	}
 	gap := 0
 	if len(left) > 0 && len(right) > 0 {
