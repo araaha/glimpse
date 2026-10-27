@@ -2,6 +2,7 @@
 package search
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"glimpse/internal/content"
@@ -26,36 +27,72 @@ type Result struct {
 // KMP keeps both working memory and read buffers bounded by
 // the query size, even on an indefinitely long logical line.
 func Find(ctx context.Context, source Source, query string, origin int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
+	return FindFrom(ctx, source, query, origin, sourceStart(source), backward, smartCase, ignoreCase, include)
+}
+
+// FindFrom accepts a known-safe logical-line start at or before origin. It tries
+// that nearby range first, falling back to the prefix only when necessary. The
+// caller must obtain anchor from decoded content, not raw newline byte searches:
+// newlines may occur inside hidden OSC/DCS strings.
+func FindFrom(ctx context.Context, source Source, query string, origin, anchor int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
 	base := sourceStart(source)
-	origin = min(max(base, origin), source.Len())
-	var best, wrapped Result
-	err := Walk(ctx, source, query, base, source.Len(), smartCase, ignoreCase, func(offset, end int64) bool {
-		eligible := offset > origin || (include && offset == origin)
+	end := source.Len()
+	origin = min(max(base, origin), end)
+	anchor = min(max(base, anchor), origin)
+	eligible := func(offset int64) bool {
 		if backward {
-			eligible = offset < origin || (include && offset == origin)
+			return offset < origin || include && offset == origin
 		}
-		if eligible {
-			best = Result{Offset: offset, Found: true}
-			if !backward {
-				return false
+		return offset > origin || include && offset == origin
+	}
+	var firstWrapped Result
+	scan := func(start, lastStart int64, wantEligible, wrapped bool) (Result, error) {
+		var found Result
+		err := walk(ctx, source, query, start, end, lastStart, smartCase, ignoreCase, func(offset, end int64) bool {
+			if eligible(offset) == wantEligible {
+				found = Result{Offset: offset, Found: true, Wrapped: wrapped}
+				return backward
 			}
-		} else if backward || !wrapped.Found {
-			wrapped = Result{Offset: offset, Found: true, Wrapped: true}
+			if !backward && wantEligible && !firstWrapped.Found {
+				firstWrapped = Result{Offset: offset, Found: true, Wrapped: true}
+			}
+			return true
+		})
+		return found, err
+	}
+	limit := end
+	if backward {
+		limit = origin
+		if !include {
+			limit--
 		}
-		return true
-	})
-	if err != nil {
-		return Result{}, err
 	}
-	if best.Found {
-		return best, nil
+	if found, err := scan(anchor, limit, true, false); found.Found || err != nil {
+		return found, err
 	}
-	return wrapped, nil
+	if !backward {
+		if anchor > base {
+			if found, err := scan(base, anchor-1, false, true); found.Found || err != nil {
+				return found, err
+			}
+		}
+		return firstWrapped, nil
+	}
+	if anchor > base {
+		if found, err := scan(base, min(limit, anchor-1), true, false); found.Found || err != nil {
+			return found, err
+		}
+	}
+	return scan(anchor, end, false, true)
 }
 
 // Walk streams every (including overlapping) literal match in an absolute byte
 // range. Returning false from visit stops immediately without retaining matches.
 func Walk(ctx context.Context, source Source, query string, start, end int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
+	return walk(ctx, source, query, start, end, end, smartCase, ignoreCase, visit)
+}
+
+func walk(ctx context.Context, source Source, query string, start, end, lastStart int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
 	pattern := []rune(query)
 	if len(pattern) == 0 {
 		return nil
@@ -84,12 +121,87 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 	end = min(end, source.Len())
 	start = min(max(sourceStart(source), start), end)
 	offsets := make([]int64, len(pattern))
-	reader := searchReader{reader: content.NewReader(source, start, end, 0, true), ctx: ctx}
-	index := int64(0)
+	reader := searchReader{reader: content.NewPlainReader(source, start, end), ctx: ctx}
+	index := 0
 	matched := 0
+	consume := func(r rune, start, end int64) bool {
+		// A candidate may extend past lastStart, but once its earliest active
+		// prefix starts later there can be no remaining eligible match.
+		if start > lastStart {
+			prefixStart := start
+			if matched > 0 {
+				prefixStart = offsets[(index-matched+len(pattern))%len(pattern)]
+			}
+			if prefixStart > lastStart {
+				return false
+			}
+		}
+		offsets[index] = start
+		index++
+		if index == len(pattern) {
+			index = 0
+		}
+		if fold {
+			if r >= 'a' && r <= 'z' {
+				r -= 'a' - 'A'
+			} else if r >= 128 {
+				r = foldRune(r)
+			}
+		}
+		for matched > 0 && pattern[matched] != r {
+			matched = prefix[matched-1]
+		}
+		if pattern[matched] == r {
+			matched++
+		}
+		if matched != len(pattern) {
+			return true
+		}
+		offset := offsets[index]
+		matched = prefix[matched-1]
+		if offset > lastStart {
+			return false
+		}
+		return visit(offset, end)
+	}
+	first := pattern[0]
+	firstBytes := string(first)
+	if fold && first >= 'A' && first <= 'Z' {
+		firstBytes += string(first + 'a' - 'A')
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if run, ok := reader.ascii(); ok {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if run.Start > lastStart && matched == 0 {
+				return nil
+			}
+			data, offset := run.Bytes, run.Start
+			for len(data) > 0 {
+				if matched == 0 {
+					i := -1
+					if first < 128 {
+						if len(firstBytes) == 1 {
+							i = bytes.IndexByte(data, byte(first))
+						} else {
+							i = bytes.IndexAny(data, firstBytes)
+						}
+					}
+					if i < 0 {
+						break
+					}
+					data, offset = data[i:], offset+int64(i)
+				}
+				if !consume(rune(data[0]), offset, offset+1) {
+					return nil
+				}
+				data, offset = data[1:], offset+1
+			}
+			continue
 		}
 		token, err := reader.next()
 		if errors.Is(err, io.EOF) {
@@ -101,24 +213,7 @@ func Walk(ctx context.Context, source Source, query string, start, end int64, sm
 		if token.Hidden {
 			continue
 		}
-		r := token.Raw
-		offsets[index%int64(len(pattern))] = token.Start
-		index++
-		if fold {
-			r = foldRune(r)
-		}
-		for matched > 0 && pattern[matched] != r {
-			matched = prefix[matched-1]
-		}
-		if pattern[matched] == r {
-			matched++
-		}
-		if matched != len(pattern) {
-			continue
-		}
-		offset := offsets[(index-int64(len(pattern)))%int64(len(pattern))]
-		matched = prefix[matched-1] // Preserve overlapping matches.
-		if !visit(offset, token.End) {
+		if !consume(token.Raw, token.Start, token.End) {
 			return nil
 		}
 	}

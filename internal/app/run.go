@@ -78,6 +78,10 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var deadline time.Time
 	pasting := false
 	layout := a.UI.Layout(screen.Size())
+	var bodyLines []string
+	var bodyStyled [][]ui.Glyph
+	var bodyLayout ui.Layout
+	var bodyOffset, bodyBase int64
 	updateText := func() error {
 		anchor := text.Offset(view.top)
 		reflow := indexedWidth != layout.Body.Width
@@ -137,12 +141,19 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		anchor := text.Offset(view.top)
 		view.reflow(text.RowAt(anchor), text.RowCount(), layout.Body.Height, length != previousLength || text.RowCount() != previousRows || text.Indexed() != previousIndexed)
-		lines, err := text.Lines(view.top, layout.Body.Height)
-		if err != nil {
-			if errors.Is(err, pager.ErrEvicted) {
-				return nil
+		// While G is pending, only progress/status changes. Reuse an already
+		// complete, immutable starting viewport instead of decoding it at 60 Hz.
+		cachedBody := wantBottom && bodyLayout == layout && bodyOffset == text.Offset(view.top) && bodyBase == discarded && view.top+layout.Body.Height < previousRows
+		lines, styled := bodyLines, bodyStyled
+		if !cachedBody {
+			lines, err = text.Lines(view.top, layout.Body.Height)
+			if err != nil {
+				if errors.Is(err, pager.ErrEvicted) {
+					return nil
+				}
+				return err
 			}
-			return err
+			styled = text.Styled()
 		}
 		state := ""
 		if reading {
@@ -158,7 +169,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			state += "  seeking end"
 		}
 		status := fmt.Sprintf("%s  %d bytes  row %d/%d%s", name, a.Document.Len(), min(view.top+1, text.RowCount()), text.RowCount(), state)
-		frame := ui.Frame{Layout: layout, Lines: lines, Styled: text.Styled(), Status: status, Search: search.message, WideAmbiguous: a.wideAmbiguous}
+		frame := ui.Frame{Layout: layout, Lines: lines, Styled: styled, Status: status, Search: search.message, WideAmbiguous: a.wideAmbiguous}
 		if paused && search.prompt == nil {
 			frame.Search = "Storage paused: spool quota reached; :set spool-quota=BYTES to resume"
 		}
@@ -183,6 +194,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if err := a.Renderer.Render(frame); err != nil {
 			return err
 		}
+		bodyLines, bodyStyled, bodyLayout = lines, styled, layout
+		bodyOffset, bodyBase = text.Offset(view.top), discarded
 		previousLength = length
 		previousRows, previousIndexed = text.RowCount(), text.Indexed()
 		previousPaused = paused
@@ -242,7 +255,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 					if search.busy {
 						search.repeats = append(search.repeats, backward)
 					} else {
-						search.start(ctx, a.Document, origin, backward, a.SmartCase, a.IgnoreCase, include)
+						search.start(ctx, a.Document, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, include)
 					}
 				}
 				dirty = true
@@ -284,7 +297,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return
 		}
 		search.query, search.backward, search.matched = query, p.backward, false
-		search.start(ctx, a.Document, p.origin, p.backward, a.SmartCase, a.IgnoreCase, true)
+		search.start(ctx, a.Document, p.origin, text.SearchAnchor(p.origin), p.backward, a.SmartCase, a.IgnoreCase, true)
 	}
 	applyPrompt = func(commands []keybind.Command) (bool, error) {
 		for i := len(commands) - 1; i >= 0; i-- {
@@ -355,7 +368,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 				search.query, search.backward, search.matched = query, backward, false
 				view.follow, view.bottom = false, false
-				search.start(ctx, a.Document, origin, backward, a.SmartCase, a.IgnoreCase, true)
+				search.start(ctx, a.Document, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, true)
 			default:
 				before := string(search.prompt.text)
 				search.prompt.edit(command)
@@ -456,7 +469,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if response.err == nil && response.result.Found && len(search.repeats) > 0 {
 				backward := search.repeats[0]
 				search.repeats = search.repeats[1:]
-				search.start(ctx, a.Document, search.match, backward, a.SmartCase, a.IgnoreCase, false)
+				search.start(ctx, a.Document, search.match, text.SearchAnchor(search.match), backward, a.SmartCase, a.IgnoreCase, false)
 			} else if response.err != nil || !response.result.Found {
 				search.repeats = nil
 			}

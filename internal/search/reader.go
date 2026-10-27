@@ -15,6 +15,32 @@ type searchReader struct {
 	pending               content.Token
 	queued                content.Token
 	hasPending, hasQueued bool
+	batch                 content.ASCIIRun
+	single                [1]byte
+}
+
+// ascii emits text proven not to be part of an overstrike, without manufacturing
+// one Token (and multiple lookahead/context checks) for each ordinary byte.
+func (r *searchReader) ascii() (content.ASCIIRun, bool) {
+	if len(r.batch.Bytes) > 0 {
+		run := r.batch
+		r.batch = content.ASCIIRun{}
+		return run, true
+	}
+	if r.hasQueued || r.hasPending && (r.pending.Raw < ' ' || r.pending.Raw > '~' || r.pending.End != r.pending.Start+1) {
+		return content.ASCIIRun{}, false
+	}
+	run, ok := r.reader.ASCII()
+	if !ok {
+		return run, false
+	}
+	if r.hasPending {
+		r.batch = run
+		r.single[0] = byte(r.pending.Raw)
+		run = content.ASCIIRun{Bytes: r.single[:], Start: r.pending.Start}
+		r.hasPending = false
+	}
+	return run, true
 }
 
 func (r *searchReader) raw() (content.Token, error) {

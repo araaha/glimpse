@@ -80,7 +80,7 @@ func (s *searchState) begin(backward bool) {
 	s.message = ""
 }
 
-func (s *searchState) start(ctx context.Context, source search.Source, origin int64, backward, smartCase, ignoreCase, include bool) {
+func (s *searchState) start(ctx context.Context, source search.Source, origin, anchor int64, backward, smartCase, ignoreCase, include bool) {
 	repeats := s.repeats
 	s.stop()
 	s.repeats, s.busy = repeats, true
@@ -90,7 +90,7 @@ func (s *searchState) start(ctx context.Context, source search.Source, origin in
 	s.workers.Add(1)
 	go func() {
 		defer s.workers.Done()
-		result, err := search.Find(ctx, source, query, origin, backward, smartCase, ignoreCase, include)
+		result, err := search.FindFrom(ctx, source, query, origin, anchor, backward, smartCase, ignoreCase, include)
 		select {
 		case s.results <- searchResponse{generation, result, err}:
 		case <-ctx.Done():
