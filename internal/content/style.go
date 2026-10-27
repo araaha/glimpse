@@ -7,15 +7,29 @@ import (
 	"strings"
 )
 
-// Style packs RGB foreground/background plus attributes into a fixed-size index
+// Style packs foreground/background colors plus attributes into a fixed-size index
 // record. Zero is the terminal default, not black.
 type Style uint64
 
-// Color stores an explicit 24-bit RGB color plus one; zero means terminal default.
+// Color stores RGB+1 or a tagged terminal palette index; zero is terminal default.
 // Underline colors are independent of text colors and stored separately from Style.
 type Color uint32
 
-func (c Color) RGB() (uint32, bool) { return uint32(c) - 1, c != 0 }
+const indexedColorBase Color = 0x1000001
+
+// Index reports a terminal palette entry, whose appearance is theme-dependent.
+func (c Color) Index() (int, bool) { return int(c - indexedColorBase), c >= indexedColorBase }
+
+// RGB returns the explicit RGB value, or the conventional palette approximation.
+// Renderers must check Index first to preserve terminal-theme colors.
+func (c Color) RGB() (uint32, bool) {
+	if index, ok := c.Index(); ok {
+		return palette(index), true
+	}
+	return uint32(c) - 1, c != 0
+}
+
+func indexedColor(index int) Color { return indexedColorBase + Color(index) }
 
 const (
 	Bold Style = 1 << (50 + iota)
@@ -28,19 +42,20 @@ const (
 const colorMask Style = (1 << 25) - 1
 
 func (s Style) Foreground() (uint32, bool) {
-	value := uint32(s & colorMask)
-	return value - 1, value != 0
+	return s.ForegroundColor().RGB()
 }
 func (s Style) Background() (uint32, bool) {
-	value := uint32((s >> 25) & colorMask)
-	return value - 1, value != 0
+	return s.BackgroundColor().RGB()
 }
-func (s Style) color(rgb uint32, background bool) Style {
+func (s Style) ForegroundColor() Color { return Color(s & colorMask) }
+func (s Style) BackgroundColor() Color { return Color((s >> 25) & colorMask) }
+
+func (s Style) color(value Color, background bool) Style {
 	shift := uint(0)
 	if background {
 		shift = 25
 	}
-	return s & ^(colorMask<<shift) | Style(rgb+1)<<shift
+	return s & ^(colorMask<<shift) | Style(value)<<shift
 }
 
 func palette(index int) uint32 {
@@ -104,30 +119,30 @@ func sgr(style Style, underline Color, parameters string) (Style, Color) {
 		case value == 59:
 			underline = 0
 		case value >= 30 && value <= 37:
-			style = style.color(palette(value-30+8), false)
+			style = style.color(indexedColor(value-30), false)
 		case value >= 40 && value <= 47:
-			style = style.color(palette(value-40), true)
+			style = style.color(indexedColor(value-40), true)
 		case value >= 90 && value <= 97:
-			style = style.color(palette(value-90+8), false)
+			style = style.color(indexedColor(value-90+8), false)
 		case value >= 100 && value <= 107:
-			style = style.color(palette(value-100+8), true)
+			style = style.color(indexedColor(value-100+8), true)
 		case value == 38 || value == 48 || value == 58:
-			applyColor := func(rgb uint32) {
+			applyColor := func(color Color) {
 				if value == 58 {
-					underline = Color(rgb + 1)
+					underline = color
 				} else {
-					style = style.color(rgb, value == 48)
+					style = style.color(color, value == 48)
 				}
 			}
 			if i+2 < len(values) && values[i+1] == 5 {
 				if values[i+2] <= 255 {
-					applyColor(palette(values[i+2]))
+					applyColor(indexedColor(values[i+2]))
 				}
 				i += 2
 			} else if i+4 < len(values) && values[i+1] == 2 {
 				r, g, b := values[i+2], values[i+3], values[i+4]
 				if r <= 255 && g <= 255 && b <= 255 {
-					applyColor(uint32(r<<16 | g<<8 | b))
+					applyColor(Color(r<<16|g<<8|b) + 1)
 				}
 				i += 4
 			} else {

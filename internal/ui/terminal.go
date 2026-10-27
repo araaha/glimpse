@@ -77,18 +77,23 @@ func (t *Terminal) Render(frame Frame) error {
 
 func terminalStyle(style content.Style, underline ...content.Color) tcell.Style {
 	result := tcell.StyleDefault.Bold(style&content.Bold != 0).Dim(style&content.Dim != 0).Italic(style&content.Italic != 0).Underline(style&content.Underline != 0).Reverse(style&content.Reverse != 0).StrikeThrough(style&content.Strike != 0)
-	if rgb, ok := style.Foreground(); ok {
-		result = result.Foreground(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
-	}
-	if rgb, ok := style.Background(); ok {
-		result = result.Background(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
-	}
+	result = result.Foreground(terminalColor(style.ForegroundColor())).Background(terminalColor(style.BackgroundColor()))
 	if len(underline) > 0 {
-		if rgb, ok := underline[0].RGB(); ok {
-			result = result.Underline(color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255)))
+		if underline[0] != 0 {
+			result = result.Underline(terminalColor(underline[0]))
 		}
 	}
 	return result
+}
+
+func terminalColor(value content.Color) color.Color {
+	if index, ok := value.Index(); ok {
+		return color.PaletteColor(index)
+	}
+	if rgb, ok := value.RGB(); ok {
+		return color.NewRGBColor(int32(rgb>>16), int32(rgb>>8&255), int32(rgb&255))
+	}
+	return color.Default
 }
 
 // searchLine keeps the editing cursor visible without splitting UTF-8. Controls
