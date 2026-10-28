@@ -48,6 +48,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	}
 	defer screen.Fini()
 	screen.EnablePaste()
+	a.truecolor = screen.Colors() >= 1<<24
 	if a.Renderer == nil {
 		a.Renderer = ui.NewTerminal(screen)
 	}
@@ -314,13 +315,16 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 			}
 		}
+		if a.HexColors && a.truecolor {
+			frame.HexColors = text.HexColors(lines, view.top)
+		}
 		if a.HighlightSearch {
 			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
 		}
 		if help != nil {
 			helpView.top = min(helpView.top, max(0, len(help)-layout.Body.Height))
 			frame.Lines = help[helpView.top:min(len(help), helpView.top+layout.Body.Height)]
-			frame.Styled, frame.Highlights, frame.Gutter, frame.GutterWidth = nil, nil, nil, 0
+			frame.Styled, frame.Highlights, frame.HexColors, frame.Gutter, frame.GutterWidth = nil, nil, nil, nil, 0
 		}
 		if search.prompt != nil {
 			prefix := "/"
@@ -434,6 +438,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				a.UI.ToggleStatusline()
 			} else if action == keybind.ToggleLineNumbers {
 				a.LineNumbers = !a.LineNumbers
+			} else if action == keybind.ToggleHexColors {
+				a.HexColors = !a.HexColors
 			} else if action == keybind.ToggleWrap {
 				a.Wrap, left = !a.Wrap, 0
 			} else if action == keybind.ScrollLeft || action == keybind.ScrollRight {
@@ -460,6 +466,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			search.stop()
 			search.matched, search.message = false, ""
+			if action == keybind.ToggleHexColors && a.HexColors && !a.truecolor {
+				search.message = hexColorsUnsupported
+			}
 			dirty = true
 		}
 		return false, nil

@@ -27,6 +27,7 @@ type Options struct {
 	NoSearchHighlight bool
 	NoWrap            bool
 	LineNumbers       bool
+	HexColors         bool
 	Storage           pager.StorageOptions
 	MetadataBudget    int64
 	MetadataQuota     int64
@@ -52,6 +53,8 @@ type App struct {
 	HighlightSearch               bool
 	Wrap                          bool
 	LineNumbers                   bool
+	HexColors                     bool // drawn only when truecolor is true
+	truecolor                     bool
 	metadataBudget, metadataQuota int64
 	wideAmbiguous                 bool
 	follow, followName            bool
@@ -145,6 +148,7 @@ func New(options Options) (*App, error) {
 		HighlightSearch:   !options.NoSearchHighlight,
 		Wrap:              !options.NoWrap,
 		LineNumbers:       options.LineNumbers,
+		HexColors:         options.HexColors,
 		metadataBudget:    options.MetadataBudget,
 		metadataQuota:     options.MetadataQuota,
 		wideAmbiguous:     options.AmbiguousWidth == 2,

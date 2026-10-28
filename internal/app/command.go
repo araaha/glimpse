@@ -15,6 +15,9 @@ type commandResult struct {
 	message string
 }
 
+// hexColorsUnsupported explains why enabled hex colors draw nothing.
+const hexColorsUnsupported = "hex-colors needs a truecolor terminal (COLORTERM=truecolor)"
+
 // Commands deliberately have no shell escape: document input cannot execute
 // programs, and command parsing never interpolates strings into a shell.
 func (a *App) command(input string) (commandResult, error) {
@@ -91,6 +94,11 @@ func (a *App) command(input string) (commandResult, error) {
 			a.Wrap = enabled
 		case "line-numbers":
 			a.LineNumbers = enabled
+		case "hex-colors":
+			a.HexColors = enabled
+			if enabled && !a.truecolor {
+				return commandResult{message: hexColorsUnsupported}, nil
+			}
 		default:
 			return commandResult{}, fmt.Errorf("unknown option %q", name)
 		}

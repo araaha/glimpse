@@ -28,12 +28,9 @@ func (t *Text) marked(cells []markedGlyph) []Highlight {
 	return result
 }
 
-// Highlights maps overlapping source matches to rendered glyphs, never to
-// expanded tabs or other transformed display text. Glyph memory is viewport-bound.
-func (t *Text) Highlights(lines []string, top int, query string, smart, ignore bool) []Highlight {
-	if query == "" || len(lines) == 0 {
-		return nil
-	}
+// sourceCells lists the rendered glyphs that came from source text, ordered by
+// source offset, with the running maximum end used by overlapping.
+func (t *Text) sourceCells() []markedGlyph {
 	var cells []markedGlyph
 	for row, glyphs := range t.rendered {
 		for _, glyph := range glyphs {
@@ -42,27 +39,31 @@ func (t *Text) Highlights(lines []string, top int, query string, smart, ignore b
 			}
 		}
 	}
-	if len(cells) == 0 {
-		return nil
-	}
 	sort.Slice(cells, func(i, j int) bool { return cells[i].glyph.Start < cells[j].glyph.Start })
 	maximum := int64(0)
 	for i := range cells {
 		maximum = max(maximum, cells[i].glyph.End)
 		cells[i].maxEnd = maximum
 	}
-	mark := func(start, end int64) bool {
-		index := sort.Search(len(cells), func(i int) bool { return cells[i].maxEnd > start })
-		for i := index; i < len(cells) && cells[i].glyph.Start < end; i++ {
-			if cells[i].glyph.End > start {
-				cells[i].marked = true
-			}
+	return cells
+}
+
+// overlapping calls visit with the index of each cell overlapping [start,end).
+func overlapping(cells []markedGlyph, start, end int64, visit func(int)) {
+	index := sort.Search(len(cells), func(i int) bool { return cells[i].maxEnd > start })
+	for i := index; i < len(cells) && cells[i].glyph.Start < end; i++ {
+		if cells[i].glyph.End > start {
+			visit(i)
 		}
-		return true
 	}
+}
+
+// scanVisible calls scan over the source ranges that can hold a span of up to
+// runes runes touching the screen. Wrapped text is scanned as one range reaching
+// runes rows beyond the screen. An unwrapped row can be arbitrarily long, so
+// each is scanned only up to a bounded distance past its last visible glyph.
+func (t *Text) scanVisible(rows, top, runes int, scan func(start, end int64)) {
 	if t.nowrap {
-		// An unwrapped row can be arbitrarily long: scan each row only up to a
-		// bounded distance past its last visible glyph.
 		for row, glyphs := range t.rendered {
 			if len(glyphs) == 0 {
 				continue
@@ -75,16 +76,33 @@ func (t *Text) Highlights(lines []string, top int, query string, smart, ignore b
 			for _, glyph := range glyphs {
 				visible = max(visible, glyph.End)
 			}
-			end = min(end, visible+int64(len(query))*4+highlightSlack)
-			_ = search.Walk(context.Background(), t.source, query, start, end, smart, ignore, mark)
+			scan(start, min(end, visible+int64(runes)*4+highlightSlack))
 		}
-		return t.marked(cells)
+		return
 	}
-	lookaround := utf8.RuneCountInString(query)
-	start, end := t.Offset(max(0, top-lookaround)), t.scanned
-	if row := top + len(lines) + lookaround; row < t.RowCount() {
+	start, end := t.Offset(max(0, top-runes)), t.scanned
+	if row := top + rows + runes; row < t.RowCount() {
 		end = t.Offset(row)
 	}
-	_ = search.Walk(context.Background(), t.source, query, start, end, smart, ignore, mark)
+	scan(start, end)
+}
+
+// Highlights maps overlapping source matches to rendered glyphs, never to
+// expanded tabs or other transformed display text. Glyph memory is viewport-bound.
+func (t *Text) Highlights(lines []string, top int, query string, smart, ignore bool) []Highlight {
+	if query == "" || len(lines) == 0 {
+		return nil
+	}
+	cells := t.sourceCells()
+	if len(cells) == 0 {
+		return nil
+	}
+	mark := func(start, end int64) bool {
+		overlapping(cells, start, end, func(i int) { cells[i].marked = true })
+		return true
+	}
+	t.scanVisible(len(lines), top, utf8.RuneCountInString(query), func(start, end int64) {
+		_ = search.Walk(context.Background(), t.source, query, start, end, smart, ignore, mark)
+	})
 	return t.marked(cells)
 }

@@ -55,6 +55,18 @@ func (t *Terminal) Render(frame Frame) error {
 			}
 		}
 	}
+	for _, code := range frame.HexColors {
+		if code.Row < 0 || code.Row >= frame.Layout.Body.Height {
+			continue
+		}
+		for x := gutter + max(0, code.Column); x < min(frame.Layout.Body.Width, gutter+code.Column+code.Width); {
+			text, style, width := t.screen.Get(x, code.Row)
+			if width > 0 {
+				t.screen.Put(x, code.Row, text, style.Reverse(false).Foreground(contrastColor(code.RGB)).Background(color.NewHexColor(code.RGB)))
+			}
+			x += max(1, width)
+		}
+	}
 	for _, mark := range frame.Highlights {
 		if mark.Row < 0 || mark.Row >= frame.Layout.Body.Height {
 			continue
@@ -115,6 +127,16 @@ func (t *Terminal) Render(frame Frame) error {
 	}
 	t.screen.Show()
 	return nil
+}
+
+// contrastColor picks black or white text for a background, by its relative
+// luminance with the sRGB coefficients approximated as integers.
+func contrastColor(rgb int32) color.Color {
+	r, g, b := rgb>>16&255, rgb>>8&255, rgb&255
+	if 299*r+587*g+114*b >= 128000 {
+		return color.NewHexColor(0x000000)
+	}
+	return color.NewHexColor(0xffffff)
 }
 
 // withColors applies the valid foreground and background of colors to style.

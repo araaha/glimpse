@@ -40,6 +40,8 @@ type Frame struct {
 	GutterStyle tcell.Style
 	// UnprintableStyle colors unprintable glyphs; unset colors keep the text's.
 	UnprintableStyle tcell.Style
+	// HexColors paint #RRGGBB codes with their own color, beneath Highlights.
+	HexColors []HexColor
 }
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.

@@ -57,6 +57,21 @@ a fraction of the screen height.
 Show a line number gutter (toggle with
 .BR # ).
 .TP
+.B \-\-hex\-colors
+Color each
+.BI # RRGGBB
+code with the color it names (toggle with
+.BR R ).
+Codes must stand alone, not inside a longer word or number.
+It needs a truecolor terminal, detected from
+.B COLORTERM
+or a
+.B \-direct
+or
+.B \-truecolor
+.BR TERM ;
+otherwise nothing is colored.
+.TP
 .BR \-\-wrap =\fIbool\fP
 Wrap long lines (the default).
 With
@@ -200,6 +215,11 @@ Toggle line wrapping.
 .B #
 Toggle line numbers.
 .TP
+.B R
+Toggle coloring
+.BI # RRGGBB
+codes.
+.TP
 .B =
 Toggle the statusline (cmdheight \-1 and \-2).
 .TP
@@ -231,8 +251,9 @@ Enable or disable
 .BR incremental ,
 .BR highlight ,
 .BR wrap ,
+.BR line\-numbers ,
 or
-.BR line\-numbers .
+.BR hex\-colors .
 .TP
 .BI ":set jump\-target=" N
 Change the jump target.
@@ -270,6 +291,7 @@ Tables:
 .B [display]
 .BR wrap ,
 .BR line\-numbers ,
+.BR hex\-colors ,
 .BR ambiguous\-width ;
 .B [display.line\-number\-style]
 .BR fg ,
@@ -324,7 +346,7 @@ View actions:
 quit, cancel, top, bottom, up, down, page\-up, page\-down, half\-page\-up,
 half\-page\-down, follow, toggle\-status, search\-forward, search\-backward,
 search\-next, search\-previous, command, toggle\-wrap, scroll\-left,
-scroll\-right, toggle\-line\-numbers, help.
+scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, help.
 Prompt actions:
 search\-accept, search\-cancel, search\-left, search\-right, search\-start,
 search\-end, search\-word\-left, search\-word\-right, search\-backspace,

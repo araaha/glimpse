@@ -34,6 +34,7 @@ const (
 	ScrollLeft         Action = "scroll-left"
 	ScrollRight        Action = "scroll-right"
 	ToggleLineNumbers  Action = "toggle-line-numbers"
+	ToggleHexColors    Action = "toggle-hex-colors"
 	Help               Action = "help"
 	Insert             Action = "insert"
 	SearchCancel       Action = "search-cancel"
@@ -94,6 +95,7 @@ func Defaults() []Binding {
 		{ScrollRight, []Key{"l"}},
 		{ScrollRight, []Key{"<Right>"}},
 		{ToggleLineNumbers, []Key{"#"}},
+		{ToggleHexColors, []Key{"R"}},
 		{Help, []Key{"g", "?"}},
 	}
 }
@@ -293,6 +295,7 @@ var Descriptions = map[Action]string{
 	ScrollLeft:         "scroll unwrapped lines left",
 	ScrollRight:        "scroll unwrapped lines right",
 	ToggleLineNumbers:  "toggle line numbers",
+	ToggleHexColors:    "toggle coloring #RRGGBB codes",
 	Help:               "toggle this help",
 	SearchCancel:       "cancel the prompt",
 	Accept:             "run the search or command",

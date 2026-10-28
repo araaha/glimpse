@@ -99,7 +99,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 					return err
 				}
 			}
-			for _, name := range []string{"ambiguous-width", "wrap", "line-numbers"} {
+			for _, name := range []string{"ambiguous-width", "wrap", "line-numbers", "hex-colors"} {
 				if err := config.BindPFlag("display."+name, cmd.Flags().Lookup(name)); err != nil {
 					return err
 				}
@@ -147,6 +147,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
 	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
 	root.Flags().BoolP("line-numbers", "N", false, "show a line number gutter (toggle with #)")
+	root.Flags().Bool("hex-colors", false, "color #RRGGBB codes with their own color in truecolor terminals (toggle with R)")
 	root.Flags().Bool("wrap", true, "wrap long lines (toggle with w); otherwise scroll horizontally with h/l")
 	root.Flags().StringP("jump-target", "j", "1", "screen line for search matches and line jumps: 1 is the top, -1 the bottom, .5 the middle")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -2 like -1 with the statusline initially hidden, -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
@@ -207,6 +208,10 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 	options.LineNumbers, err = strconv.ParseBool(config.GetString("display.line-numbers"))
 	if err != nil {
 		return app.Options{}, fmt.Errorf("parse display.line-numbers: %w", err)
+	}
+	options.HexColors, err = strconv.ParseBool(config.GetString("display.hex-colors"))
+	if err != nil {
+		return app.Options{}, fmt.Errorf("parse display.hex-colors: %w", err)
 	}
 	if err := readAppearance(config, &options); err != nil {
 		return app.Options{}, err

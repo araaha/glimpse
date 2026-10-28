@@ -41,7 +41,8 @@ func helpLines(view, prompt *keybind.Matcher) []string {
 		{":top  :bottom", "go to the first or last line"},
 		{":q  :quit", "quit"},
 		{":set OPTION", "enable smart-case, ignore-case, case-sensitive,"},
-		{":set no-OPTION", "  incremental, highlight, wrap, or line-numbers"},
+		{":set no-OPTION", "  incremental, highlight, wrap, line-numbers,"},
+		{"", "  or hex-colors"},
 		{":set jump-target=N", "place jumps on screen line N (.5 is the middle)"},
 		{":set spool-quota=N", "raise the stream storage quota in bytes"},
 	}})
