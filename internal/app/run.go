@@ -75,7 +75,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var previousLength int64 = -1
 	previousRows, indexedWidth := 0, 0
 	indexedWrap := a.Wrap
-	left := 0 // first visible display column of unwrapped rows
+	left := 0         // first visible display column of unwrapped rows
+	var help []string // the help screen's lines while it is open
+	var helpView viewState
 	var previousIndexed int64 = -1
 	pendingLine := 0
 	var pendingOffset int64
@@ -220,6 +222,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		state.SearchCurrent, state.SearchTotal, state.SearchCurrentKnown, state.SearchTotalKnown = counts.values(key, target, search.matched)
 		switch {
+		case help != nil:
+			state.Mode = "HELP"
 		case search.busy || search.prompt != nil && !search.prompt.command || pendingSearch && hasPendingOffset:
 			state.Mode = "SEARCH"
 		case view.follow:
@@ -252,6 +256,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if a.HighlightSearch {
 			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
 		}
+		if help != nil {
+			helpView.top = min(helpView.top, max(0, len(help)-layout.Body.Height))
+			frame.Lines = help[helpView.top:min(len(help), helpView.top+layout.Body.Height)]
+			frame.Styled, frame.Highlights, frame.Gutter, frame.GutterWidth = nil, nil, nil, 0
+		}
 		if search.prompt != nil {
 			prefix := "/"
 			if search.prompt.backward {
@@ -277,6 +286,23 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	}
 	var applyPrompt func([]keybind.Command) (bool, error)
 	apply := func(actions []keybind.Command) (bool, error) {
+		// The help screen takes over navigation; closing it drops the rest of
+		// the batch rather than acting on the document behind it.
+		if help != nil {
+			for _, command := range actions {
+				switch command.Action {
+				case keybind.Quit, keybind.Cancel, keybind.Help:
+					help = nil
+				case keybind.Top, keybind.Bottom, keybind.Up, keybind.Down, keybind.PageUp, keybind.PageDown, keybind.HalfPageUp, keybind.HalfPageDown:
+					helpView.apply(command.Action, len(help), layout.Body.Height)
+				}
+				if help == nil {
+					break
+				}
+			}
+			dirty = true
+			return false, nil
+		}
 		// Discard unresolved actions before cancellation, not commands retried
 		// afterward. The trie has already consumed the canceled prefix; any
 		// pending input now belongs to a new command and must be preserved.
@@ -337,6 +363,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			if action == keybind.Quit {
 				return true, nil
+			}
+			if action == keybind.Help {
+				help, helpView = helpLines(a.Keys, a.SearchKeys), viewState{}
+				dirty = true
+				continue
 			}
 			if action == keybind.ToggleStatus {
 				a.UI.ToggleStatusline()

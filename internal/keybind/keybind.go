@@ -34,6 +34,7 @@ const (
 	ScrollLeft         Action = "scroll-left"
 	ScrollRight        Action = "scroll-right"
 	ToggleLineNumbers  Action = "toggle-line-numbers"
+	Help               Action = "help"
 	Insert             Action = "insert"
 	SearchCancel       Action = "search-cancel"
 	Accept             Action = "search-accept"
@@ -93,6 +94,7 @@ func Defaults() []Binding {
 		{ScrollRight, []Key{"l"}},
 		{ScrollRight, []Key{"<Right>"}},
 		{ToggleLineNumbers, []Key{"#"}},
+		{Help, []Key{"g", "?"}},
 	}
 }
 
@@ -266,4 +268,72 @@ func ParseKey(token string) (Key, error) {
 		}
 	}
 	return "", fmt.Errorf("invalid key %q (use separate array entries for a sequence)", token)
+}
+
+// Descriptions explain each action for the help screen.
+var Descriptions = map[Action]string{
+	Quit:               "quit",
+	Cancel:             "cancel a pending key sequence or search",
+	Top:                "go to the first line",
+	Bottom:             "go to the last line, or line N with a count",
+	Up:                 "scroll up one row",
+	Down:               "scroll down one row",
+	PageUp:             "scroll up one screen",
+	PageDown:           "scroll down one screen",
+	HalfPageUp:         "scroll up half a screen",
+	HalfPageDown:       "scroll down half a screen",
+	Follow:             "toggle following new input",
+	ToggleStatus:       "toggle the statusline (cmdheight -1/-2)",
+	SearchForward:      "search forward",
+	SearchBackward:     "search backward",
+	SearchNext:         "repeat the search",
+	SearchPrevious:     "repeat the search in the opposite direction",
+	CommandInput:       "enter a : command",
+	ToggleWrap:         "toggle line wrapping",
+	ScrollLeft:         "scroll unwrapped lines left",
+	ScrollRight:        "scroll unwrapped lines right",
+	ToggleLineNumbers:  "toggle line numbers",
+	Help:               "toggle this help",
+	SearchCancel:       "cancel the prompt",
+	Accept:             "run the search or command",
+	Left:               "move left",
+	Right:              "move right",
+	Start:              "move to the start",
+	End:                "move to the end",
+	WordLeft:           "move one word left",
+	WordRight:          "move one word right",
+	Backspace:          "delete the previous character",
+	Delete:             "delete the next character",
+	DeleteWordBackward: "delete the previous word",
+	DeleteWordForward:  "delete the next word",
+	ClearBefore:        "delete to the start",
+	ClearAfter:         "delete to the end",
+	HistoryPrevious:    "previous history entry",
+	HistoryNext:        "next history entry",
+}
+
+// Actions lists view and search-prompt actions in their default order.
+func Actions() (view, prompt []Action) {
+	unique := func(bindings []Binding) []Action {
+		var actions []Action
+		for _, binding := range bindings {
+			if !slices.Contains(actions, binding.Action) {
+				actions = append(actions, binding.Action)
+			}
+		}
+		return actions
+	}
+	return unique(Defaults()), unique(searchDefaults())
+}
+
+// Format writes a sequence the way it is configured, joining its keys.
+func Format(keys []Key) string {
+	var text strings.Builder
+	for _, key := range keys {
+		if key == " " {
+			key = "<Space>"
+		}
+		text.WriteString(string(key))
+	}
+	return text.String()
 }
