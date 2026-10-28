@@ -33,6 +33,8 @@ type Options struct {
 	Statusline        ui.StatuslineConfig
 	SearchHighlight   ui.Colors
 	LineNumberStyle   ui.Colors
+	UnprintableChar   string
+	UnprintableStyle  ui.Colors
 	JumpTarget        JumpTarget
 }
 
@@ -55,6 +57,8 @@ type App struct {
 	Statusline                    *ui.Statusline
 	SearchHighlight               tcell.Style
 	LineNumberStyle               tcell.Style
+	UnprintableStyle              tcell.Style
+	unprintableChar               string
 	JumpTarget                    JumpTarget
 }
 
@@ -74,6 +78,15 @@ func New(options Options) (*App, error) {
 	numbers, err = options.LineNumberStyle.Style(numbers)
 	if err != nil {
 		return nil, fmt.Errorf("line numbers: %w", err)
+	}
+	unprintable, err := options.UnprintableStyle.Style(tcell.StyleDefault)
+	if err != nil {
+		return nil, fmt.Errorf("unprintable: %w", err)
+	}
+	if options.UnprintableChar != "" {
+		if err := ui.ValidateCellText(options.UnprintableChar, options.AmbiguousWidth == 2); err != nil {
+			return nil, fmt.Errorf("unprintable char: %w", err)
+		}
 	}
 	model, err := ui.NewModel(options.CmdHeight)
 	if err != nil {
@@ -139,6 +152,8 @@ func New(options Options) (*App, error) {
 		SearchHighlight:   highlight,
 		JumpTarget:        options.JumpTarget,
 		LineNumberStyle:   numbers,
+		UnprintableStyle:  unprintable,
+		unprintableChar:   options.UnprintableChar,
 	}, nil
 }
 

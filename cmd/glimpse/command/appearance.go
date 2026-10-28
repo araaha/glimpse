@@ -19,7 +19,7 @@ func readAppearance(config *viper.Viper, options *app.Options) error {
 			return fmt.Errorf("unknown statusline option %q", key)
 		}
 	}
-	for _, path := range []string{"statusline", "statusline.styles", "search.highlight-style", "display.line-number-style"} {
+	for _, path := range []string{"statusline", "statusline.styles", "search.highlight-style", "display.line-number-style", "display.unprintable"} {
 		if raw := config.Get(path); raw != nil {
 			if _, ok := raw.(map[string]any); !ok {
 				return fmt.Errorf("%s must be a table", path)
@@ -133,5 +133,20 @@ func readAppearance(config *viper.Viper, options *app.Options) error {
 		return err
 	}
 	options.LineNumberStyle, err = readColors("display.line-number-style")
+	if err != nil {
+		return err
+	}
+	for key := range config.GetStringMap("display.unprintable") {
+		if key != "char" && key != "fg" && key != "bg" {
+			return fmt.Errorf("unknown unprintable option display.unprintable.%s", key)
+		}
+	}
+	if options.UnprintableChar, err = readString("display.unprintable.char"); err != nil {
+		return err
+	}
+	if options.UnprintableStyle.FG, err = readString("display.unprintable.fg"); err != nil {
+		return err
+	}
+	options.UnprintableStyle.BG, err = readString("display.unprintable.bg")
 	return err
 }

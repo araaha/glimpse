@@ -90,7 +90,7 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		switch {
 		case visible(cursor) && cursor+width <= limit:
 			x := cursor - left
-			cells[x] = Glyph{Text: text, Column: x, Width: width, Style: style, UnderlineColor: token.UnderlineColor, Start: token.Start, End: token.End}
+			cells[x] = Glyph{Text: text, Column: x, Width: width, Style: style, UnderlineColor: token.UnderlineColor, Start: token.Start, End: token.End, Unprintable: token.Unprintable}
 			for c := x + 1; c < x+width; c++ {
 				cells[c] = Glyph{Column: x, Width: -1}
 			}
@@ -168,6 +168,9 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 			continue
 		}
 		text := token.Text
+		if token.Unprintable && t.unprintable != "" {
+			text = t.unprintable
+		}
 		// Very long combining clusters remain a single grapheme for layout,
 		// while retained terminal text stays bounded by the visible-cell budget.
 		limitBytes := max(utf8.UTFMax, budget+width*utf8.UTFMax)

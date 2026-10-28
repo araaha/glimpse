@@ -76,6 +76,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	}
 	defer func() { runErr = errors.Join(runErr, text.Close()) }()
 	text.SetWideAmbiguous(a.wideAmbiguous)
+	text.SetUnprintable(a.unprintableChar)
 	search := searchState{results: make(chan searchResponse, 1), echo: a.UI.CmdHeight() != ui.CmdHeightToggle}
 	defer search.close()
 	counts := newStatusCounts()
@@ -144,6 +145,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return err
 		}
 		replacement.SetWideAmbiguous(a.wideAmbiguous)
+		replacement.SetUnprintable(a.unprintableChar)
 		if err := text.Close(); err != nil {
 			replacement.Close()
 			return err
@@ -285,7 +287,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		frame := ui.Frame{
 			Layout: layout, Lines: lines, Styled: styled,
 			Status: bar.Text(), StatusBar: bar, StatusState: state,
-			Search: search.message, WideAmbiguous: a.wideAmbiguous, HighlightStyle: a.SearchHighlight,
+			Search: search.message, WideAmbiguous: a.wideAmbiguous, HighlightStyle: a.SearchHighlight, UnprintableStyle: a.UnprintableStyle,
 			Reading: reading, Indexing: indexing, SeekingEnd: wantBottom, Follow: view.follow, DocumentLength: a.Document.Len(),
 		}
 		if watchStatus != "" && search.prompt == nil {

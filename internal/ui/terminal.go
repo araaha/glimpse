@@ -47,7 +47,11 @@ func (t *Terminal) Render(frame Frame) error {
 		}
 		for _, glyph := range glyphs {
 			if gutter+glyph.Column < frame.Layout.Body.Width {
-				t.screen.Put(gutter+glyph.Column, row, glyph.Text, terminalStyle(glyph.Style, glyph.UnderlineColor))
+				style := terminalStyle(glyph.Style, glyph.UnderlineColor)
+				if glyph.Unprintable {
+					style = withColors(style, frame.UnprintableStyle)
+				}
+				t.screen.Put(gutter+glyph.Column, row, glyph.Text, style)
 			}
 		}
 	}
@@ -111,6 +115,17 @@ func (t *Terminal) Render(frame Frame) error {
 	}
 	t.screen.Show()
 	return nil
+}
+
+// withColors applies the valid foreground and background of colors to style.
+func withColors(style, colors tcell.Style) tcell.Style {
+	if fg := colors.GetForeground(); fg.Valid() {
+		style = style.Foreground(fg)
+	}
+	if bg := colors.GetBackground(); bg.Valid() {
+		style = style.Background(bg)
+	}
+	return style
 }
 
 func terminalStyle(style content.Style, underline ...content.Color) tcell.Style {

@@ -38,6 +38,8 @@ type Frame struct {
 	Gutter      []string
 	GutterWidth int
 	GutterStyle tcell.Style
+	// UnprintableStyle colors unprintable glyphs; unset colors keep the text's.
+	UnprintableStyle tcell.Style
 }
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.
@@ -47,6 +49,7 @@ type Glyph struct {
 	Style          content.Style
 	UnderlineColor content.Color
 	Start, End     int64
+	Unprintable    bool // drawn with Frame.UnprintableStyle
 }
 
 type Highlight struct{ Row, Column, Width int }

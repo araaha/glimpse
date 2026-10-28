@@ -3,15 +3,18 @@ package ui
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"glimpse/internal/content"
 	"glimpse/internal/pager"
 
 	"github.com/clipperhouse/displaywidth"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 )
 
 type TextSource interface {
@@ -40,6 +43,7 @@ type Text struct {
 	indexWidth                     int // 0 when rows are unwrapped logical lines
 	nowrap                         bool
 	left                           int
+	unprintable                    string
 	overflow                       bool
 	column                         int
 	struckWidth                    int
@@ -99,6 +103,10 @@ func (t *Text) SetWrap(wrap bool) {
 		t.nowrap, t.policyChanged = !wrap, true
 	}
 }
+
+// SetUnprintable sets the one-cell text shown for unprintable characters;
+// empty keeps U+FFFD. Layout is unchanged because both are one cell wide.
+func (t *Text) SetUnprintable(text string) { t.unprintable = text }
 
 // SetLeft scrolls unwrapped rows horizontally to start at a display column.
 func (t *Text) SetLeft(column int) { t.left = max(0, column) }
@@ -607,4 +615,22 @@ func (t *Text) LineNumberAt(row int) (int, bool) {
 	offset := t.Offset(row)
 	line := t.LogicalLineAt(offset)
 	return line, line > 0 && t.lineStarts.at(line-1) == offset
+}
+
+// ValidateCellText accepts one printable grapheme that occupies exactly one
+// cell under the ambiguous-width policy, so it can stand in for another cell.
+func ValidateCellText(text string, wide bool) error {
+	iterator := graphemes.FromString(text)
+	if !iterator.Next() || iterator.Value() != text {
+		return fmt.Errorf("%q must be exactly one character", text)
+	}
+	for _, r := range text {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%q must not contain control characters", text)
+		}
+	}
+	if width := (displaywidth.Options{EastAsianWidth: wide}).String(text); width != 1 {
+		return fmt.Errorf("%q must be one cell wide (it is %d with this ambiguous-width)", text, width)
+	}
+	return nil
 }

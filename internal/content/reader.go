@@ -18,6 +18,9 @@ type Token struct {
 	Style          Style
 	Hidden         bool
 	UnderlineColor Color
+	// Unprintable marks a replacement for a control character, DEL, an
+	// invalid UTF-8 byte, or a malformed escape (not a literal U+FFFD).
+	Unprintable bool
 }
 
 type ASCIIRun struct {
@@ -167,11 +170,11 @@ func (r *Reader) Next() (Token, error) {
 		}
 		return token, nil
 	}
-	raw := ch
+	raw, unprintable := ch, ch == utf8.RuneError && size == 1
 	if unicode.IsControl(ch) && ch != '\n' && ch != '\r' && ch != '\b' && ch != '\t' {
-		ch = utf8.RuneError
+		ch, unprintable = utf8.RuneError, true
 	}
-	return Token{Rune: ch, Raw: raw, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
+	return Token{Rune: ch, Raw: raw, Unprintable: unprintable, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 }
 
 func (r *Reader) escape(ch rune, start int64) (Token, error) {
@@ -215,13 +218,13 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 				return hidden()
 			}
 			if b < 0x20 || b > 0x3f {
-				return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
+				return Token{Rune: utf8.RuneError, Unprintable: true, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 			}
 			if !r.ignoreStyles && parameters.Len() < 513 {
 				parameters.WriteByte(b)
 			}
 		}
-		return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
+		return Token{Rune: utf8.RuneError, Unprintable: true, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 	}
 	if introducer == ']' || introducer == 'P' || introducer == '^' || introducer == '_' || introducer == 'X' {
 		escape := false
@@ -238,7 +241,7 @@ func (r *Reader) escape(ch rune, start int64) (Token, error) {
 			escape = b == 0x1b
 			c1 = b == 0xc2
 		}
-		return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
+		return Token{Rune: utf8.RuneError, Unprintable: true, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 	}
 	if introducer >= 0x20 && introducer <= 0x2f {
 		for range 16 {
@@ -262,5 +265,5 @@ func (r *Reader) incomplete(start int64, err error) (Token, error) {
 	if !r.complete {
 		return Token{}, ErrIncomplete
 	}
-	return Token{Rune: utf8.RuneError, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
+	return Token{Rune: utf8.RuneError, Unprintable: true, Start: start, End: r.offset, Style: r.style, UnderlineColor: r.underlineColor}, nil
 }
