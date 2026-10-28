@@ -30,6 +30,9 @@ const (
 	SearchNext         Action = "search-next"
 	SearchPrevious     Action = "search-previous"
 	CommandInput       Action = "command"
+	ToggleWrap         Action = "toggle-wrap"
+	ScrollLeft         Action = "scroll-left"
+	ScrollRight        Action = "scroll-right"
 	Insert             Action = "insert"
 	SearchCancel       Action = "search-cancel"
 	Accept             Action = "search-accept"
@@ -83,6 +86,11 @@ func Defaults() []Binding {
 		{SearchNext, []Key{"n"}},
 		{SearchPrevious, []Key{"N"}},
 		{CommandInput, []Key{":"}},
+		{ToggleWrap, []Key{"w"}},
+		{ScrollLeft, []Key{"h"}},
+		{ScrollLeft, []Key{"<Left>"}},
+		{ScrollRight, []Key{"l"}},
+		{ScrollRight, []Key{"<Right>"}},
 	}
 }
 

@@ -73,6 +73,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	reading, dirty := true, true
 	var previousLength int64 = -1
 	previousRows, indexedWidth := 0, 0
+	indexedWrap := a.Wrap
+	left := 0 // first visible display column of unwrapped rows
 	var previousIndexed int64 = -1
 	pendingLine := 0
 	var pendingOffset int64
@@ -87,13 +89,28 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var bodyStyled [][]ui.Glyph
 	var bodyLayout ui.Layout
 	var bodyOffset, bodyBase int64
+	var bodyLeft int
 	// jumpTop places row at the jump target; the view never starts above row 0.
 	jumpTop := func(row int) int {
 		return max(0, row-a.JumpTarget.Row(layout.Body.Height))
 	}
+	// revealColumn scrolls unwrapped rows so that offset is visible.
+	revealColumn := func(offset int64) {
+		if a.Wrap {
+			return
+		}
+		column := text.ColumnAt(offset)
+		if column >= 0 && (column < left || column >= left+layout.Body.Width) {
+			left = 0
+			if column >= layout.Body.Width {
+				left = column - layout.Body.Width/2
+			}
+		}
+	}
 	updateText := func() error {
 		anchor := text.Offset(view.top)
-		reflow := indexedWidth != layout.Body.Width
+		text.SetWrap(a.Wrap)
+		reflow := indexedWidth != layout.Body.Width || indexedWrap != a.Wrap
 		if reflow && indexedWidth != 0 && pendingLine == 0 && !hasPendingOffset && !wantBottom {
 			pendingOffset, hasPendingOffset, pendingSearch = anchor, true, false
 		}
@@ -101,7 +118,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if err := text.UpdateFor(layout.Body.Width, !reading, indexSlice); err != nil {
 				return err
 			}
-			indexedWidth = layout.Body.Width
+			indexedWidth, indexedWrap = layout.Body.Width, a.Wrap
 			if reflow {
 				view.top = text.RowAt(anchor)
 			}
@@ -116,6 +133,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			view.top = text.RowAt(pendingOffset)
 			if pendingSearch {
 				view.top = jumpTop(view.top)
+				revealColumn(pendingOffset)
 			}
 			hasPendingOffset = false
 		}
@@ -161,7 +179,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		top := text.Offset(view.top)
 		// While G is pending, only progress/status changes. Reuse an already
 		// complete, immutable starting viewport instead of decoding it at 60 Hz.
-		cachedBody := wantBottom && bodyLayout == layout && bodyOffset == top && bodyBase == discarded && view.top+layout.Body.Height < previousRows
+		text.SetLeft(left)
+		cachedBody := wantBottom && bodyLayout == layout && bodyLeft == left && bodyOffset == top && bodyBase == discarded && view.top+layout.Body.Height < previousRows
 		lines, styled := bodyLines, bodyStyled
 		if !cachedBody {
 			lines, err = text.Lines(view.top, layout.Body.Height)
@@ -224,7 +243,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			return err
 		}
 		bodyLines, bodyStyled, bodyLayout = lines, styled, layout
-		bodyOffset, bodyBase = top, discarded
+		bodyOffset, bodyBase, bodyLeft = top, discarded, left
 		previousLength = length
 		previousRows, previousIndexed = text.RowCount(), text.Indexed()
 		previousPaused = paused
@@ -296,6 +315,21 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			if action == keybind.ToggleStatus {
 				a.UI.ToggleStatusline()
+			} else if action == keybind.ToggleWrap {
+				a.Wrap, left = !a.Wrap, 0
+			} else if action == keybind.ScrollLeft || action == keybind.ScrollRight {
+				// Unwrapped rows scroll by half a screen, as in less. Scrolling
+				// right stops once no visible row continues past the edge.
+				step := max(1, layout.Body.Width/2)
+				if a.Wrap {
+					continue
+				} else if action == keybind.ScrollLeft {
+					left = max(0, left-step)
+				} else if text.Overflow() {
+					left += step
+				}
+				dirty = true
+				continue
 			} else if action == keybind.Bottom && command.Count > 0 {
 				pendingLine, hasPendingOffset, wantBottom = command.Count, false, false
 				view.follow, view.bottom = false, false
@@ -482,6 +516,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				pendingOffset, hasPendingOffset, pendingSearch, pendingLine, wantBottom = search.match, true, true, 0, false
 				if search.match < text.Indexed() {
 					view.top = jumpTop(text.RowAt(search.match))
+					revealColumn(search.match)
 					hasPendingOffset = false
 				}
 				view.follow, view.bottom = false, false

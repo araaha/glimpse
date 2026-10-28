@@ -23,6 +23,8 @@ type Options struct {
 	CaseSensitive     bool
 	IncrementalSearch bool
 	NoSearchHighlight bool
+	NoWrap            bool
+	LineNumbers       bool
 	Storage           pager.StorageOptions
 	MetadataBudget    int64
 	MetadataQuota     int64
@@ -43,6 +45,8 @@ type App struct {
 	IgnoreCase                    bool
 	IncrementalSearch             bool
 	HighlightSearch               bool
+	Wrap                          bool
+	LineNumbers                   bool
 	metadataBudget, metadataQuota int64
 	wideAmbiguous                 bool
 	follow                        bool
@@ -114,6 +118,8 @@ func New(options Options) (*App, error) {
 		IgnoreCase:        options.IgnoreCase && !options.CaseSensitive,
 		IncrementalSearch: options.IncrementalSearch,
 		HighlightSearch:   !options.NoSearchHighlight,
+		Wrap:              !options.NoWrap,
+		LineNumbers:       options.LineNumbers,
 		metadataBudget:    options.MetadataBudget,
 		metadataQuota:     options.MetadataQuota,
 		wideAmbiguous:     options.AmbiguousWidth == 2,

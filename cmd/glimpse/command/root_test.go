@@ -59,6 +59,9 @@ func TestCmdHeightConfiguration(t *testing.T) {
 		{name: "invalid metadata budget", args: []string{"--metadata-budget=64"}, wantErr: "metadata-budget must be at least"},
 		{name: "ambiguous width flag", args: []string{"--ambiguous-width=2"}, wantErr: noTerminal},
 		{name: "ambiguous width TOML", config: "[display]\nambiguous-width = 2\n", wantErr: noTerminal},
+		{name: "wrap flag", args: []string{"--wrap=false"}, wantErr: noTerminal},
+		{name: "wrap TOML", config: "[display]\nwrap = false\n", wantErr: noTerminal},
+		{name: "invalid wrap", config: "[display]\nwrap = 'sometimes'\n", wantErr: "parse display.wrap"},
 		{name: "invalid ambiguous width", args: []string{"--ambiguous-width=3"}, wantErr: "ambiguous-width must be 1 or 2"},
 		{name: "too many files", args: []string{"one", "two"}, wantErr: "at most 1"},
 	}

@@ -7,9 +7,26 @@ import (
 	"unicode/utf8"
 )
 
+// readStyledRow renders display columns [left, left+width) of one row. Wrapped
+// rows always start at column 0; unwrapped rows are decoded from the row start
+// up to the window, and Glyph columns are relative to the window.
 func (t *Text) readStyledRow(start, end int64, style content.Style, underline content.Color) ([]Glyph, error) {
-	if length := end - start; length > 0 && length <= int64(len(t.renderScratch)) {
-		data := t.renderScratch[:int(length)]
+	left := 0
+	if t.nowrap {
+		left = t.left
+	}
+	limit := left + t.width
+	// Wrapped rows take the fast path only when whole; an unwrapped row reads
+	// just the prefix that can reach the window.
+	want := end - start
+	if t.nowrap {
+		want = min(want, int64(limit)+1)
+	}
+	if want > 0 && (t.nowrap || want <= int64(len(t.renderScratch))) {
+		if int64(cap(t.renderScratch)) < want {
+			t.renderScratch = make([]byte, want)
+		}
+		data := t.renderScratch[:want]
 		if _, err := t.source.ReadAt(data, start); err != nil {
 			return nil, err
 		}
@@ -23,20 +40,27 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 				break
 			}
 		}
-		if plain && count <= t.width {
-			glyphs := make([]Glyph, count)
-			for i := range data[:count] {
-				glyphs[i] = Glyph{Text: string(data[i : i+1]), Column: i, Width: 1, Style: style, UnderlineColor: underline, Start: start + int64(i), End: start + int64(i) + 1}
+		// A plain prefix maps bytes to columns. A wider unwrapped row overflows;
+		// later CR/BS edits past the window are ignored as in the general path.
+		if plain && (count <= limit || t.nowrap) {
+			if count > limit {
+				count, t.overflow = limit, true
+			}
+			var glyphs []Glyph
+			for i := left; i < count; i++ {
+				glyphs = append(glyphs, Glyph{Text: string(data[i : i+1]), Column: i - left, Width: 1, Style: style, UnderlineColor: underline, Start: start + int64(i), End: start + int64(i) + 1})
 			}
 			return glyphs, nil
 		}
 	}
 	reader := content.NewGraphemeReader(t.source, start, end, style, true, underline)
+	// cells holds the window; cursor and extent are row columns.
 	cells := make([]Glyph, t.width)
 	cursor, extent := 0, 0
 	budget := max(256, t.width*16) - t.width*utf8.UTFMax
 	suffix := max(256, t.width*16)
 	var struck Glyph
+	visible := func(x int) bool { return x >= left && x < limit }
 	put := func(text string, width int, token content.Cluster) {
 		style := token.Style
 		if struck.Text != "" {
@@ -54,8 +78,8 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		struck = Glyph{}
 		// Erasing either half of a wide glyph clears the whole glyph; spaces
 		// preserve terminal columns instead of leaving orphan continuations.
-		for x := cursor; x < cursor+width; x++ {
-			old := cells[x]
+		for x := max(cursor, left); x < min(cursor+width, limit); x++ {
+			old := cells[x-left]
 			if old.Width < 0 {
 				old = cells[old.Column]
 			}
@@ -63,15 +87,24 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 				cells[j] = Glyph{Text: " ", Column: j, Width: 1, Start: -1, End: -1}
 			}
 		}
-		cells[cursor] = Glyph{Text: text, Column: cursor, Width: width, Style: style, UnderlineColor: token.UnderlineColor, Start: token.Start, End: token.End}
-		for x := cursor + 1; x < cursor+width; x++ {
-			cells[x] = Glyph{Column: cursor, Width: -1}
+		switch {
+		case visible(cursor) && cursor+width <= limit:
+			x := cursor - left
+			cells[x] = Glyph{Text: text, Column: x, Width: width, Style: style, UnderlineColor: token.UnderlineColor, Start: token.Start, End: token.End}
+			for c := x + 1; c < x+width; c++ {
+				cells[c] = Glyph{Column: x, Width: -1}
+			}
+		default:
+			// A wide glyph cut by the window's left edge shows as blank cells.
+			for x := max(cursor, left); x < min(cursor+width, limit); x++ {
+				cells[x-left] = Glyph{Text: " ", Column: x - left, Width: 1, Style: style, Start: -1, End: -1}
+			}
 		}
 		cursor += width
 		extent = max(extent, cursor)
 	}
 	for {
-		reader.SetRenderState(t.width, cursor, extent, t.wideAmbiguous)
+		reader.SetRenderState(limit, cursor, extent, t.wideAmbiguous)
 		token, err := reader.Next()
 		if errors.Is(err, io.EOF) {
 			break
@@ -79,7 +112,7 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		if err != nil {
 			return nil, err
 		}
-		if extent >= t.width && (token.Hidden || token.Rune == '\r' || token.Rune == '\b' || t.clusterWidth(token.Text) == 0) {
+		if extent >= limit && (token.Hidden || token.Rune == '\r' || token.Rune == '\b' || t.clusterWidth(token.Text) == 0) {
 			suffix -= int(token.End - token.Start)
 			if suffix < 0 {
 				break
@@ -100,15 +133,22 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		if r == '\b' {
 			if cursor > 0 {
 				cursor--
-				if cells[cursor].Width < 0 {
-					cursor = cells[cursor].Column
+				struck = Glyph{}
+				if visible(cursor) {
+					if cells[cursor-left].Width < 0 {
+						cursor = left + cells[cursor-left].Column
+					}
+					struck = cells[cursor-left]
 				}
-				struck = cells[cursor]
 			}
 			continue
 		}
 		if r == '\t' {
-			count := min(8-cursor%8, t.width-cursor)
+			count := min(8-cursor%8, limit-cursor)
+			if count <= 0 {
+				t.overflow = t.overflow || t.nowrap
+				break
+			}
 			for range count {
 				put(" ", 1, token)
 			}
@@ -116,8 +156,8 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		}
 		width := t.clusterWidth(token.Text)
 		if width == 0 {
-			if cursor > 0 && len(token.Text) <= budget {
-				x := cursor - 1
+			if cursor > left && cursor <= limit && len(token.Text) <= budget {
+				x := cursor - 1 - left
 				if cells[x].Width < 0 {
 					x = cells[x].Column
 				}
@@ -130,9 +170,9 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		text := token.Text
 		// Very long combining clusters remain a single grapheme for layout,
 		// while retained terminal text stays bounded by the visible-cell budget.
-		limit := max(utf8.UTFMax, budget+width*utf8.UTFMax)
-		if len(text) > limit {
-			end := limit
+		limitBytes := max(utf8.UTFMax, budget+width*utf8.UTFMax)
+		if len(text) > limitBytes {
+			end := limitBytes
 			for end > 0 && !utf8.RuneStart(text[end]) {
 				end--
 			}
@@ -142,13 +182,14 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		if width > t.width {
 			text, width = "�", 1
 		}
-		if cursor+width > t.width {
+		if cursor+width > limit {
+			t.overflow = t.overflow || t.nowrap
 			break
 		}
 		put(text, width, token)
 	}
 	var glyphs []Glyph
-	for x := 0; x < extent; x++ {
+	for x := 0; x < extent-left && x < t.width; x++ {
 		if cells[x].Width > 0 {
 			glyphs = append(glyphs, cells[x])
 		}

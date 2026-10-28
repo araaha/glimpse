@@ -13,10 +13,11 @@ type node struct {
 // Matcher is a sequence trie with view-local pending input. Incomplete prefixes
 // wait for more input; only ambiguous completed bindings need a timeout.
 type Matcher struct {
-	root    node
-	pending []Key
-	count   int
-	insert  bool
+	root     node
+	bindings []Binding
+	pending  []Key
+	count    int
+	insert   bool
 }
 
 // Command carries an optional numeric prefix. Count is zero when omitted.
@@ -30,7 +31,7 @@ type Command struct {
 }
 
 func NewMatcher(bindings []Binding) (*Matcher, error) {
-	m := &Matcher{root: node{children: make(map[Key]*node)}}
+	m := &Matcher{root: node{children: make(map[Key]*node)}, bindings: bindings}
 	for _, binding := range bindings {
 		if binding.Action == "" || len(binding.Keys) == 0 {
 			return nil, fmt.Errorf("keybindings must have an action and a nonempty sequence")
@@ -52,6 +53,10 @@ func NewMatcher(bindings []Binding) (*Matcher, error) {
 	}
 	return m, nil
 }
+
+// Bindings returns the effective bindings in definition order: defaults that
+// were not replaced, followed by configured sequences.
+func (m *Matcher) Bindings() []Binding { return m.bindings }
 
 // Feed may return two actions when an ambiguous shorter binding is completed
 // and the mismatching key also matches a binding at the root.

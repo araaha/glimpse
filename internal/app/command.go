@@ -87,6 +87,10 @@ func (a *App) command(input string) (commandResult, error) {
 			a.IncrementalSearch = enabled
 		case "highlight":
 			a.HighlightSearch = enabled
+		case "wrap":
+			a.Wrap = enabled
+		case "line-numbers":
+			a.LineNumbers = enabled
 		default:
 			return commandResult{}, fmt.Errorf("unknown option %q", name)
 		}

@@ -37,6 +37,10 @@ type Text struct {
 	base                           int64
 	scanned                        int64
 	width                          int
+	indexWidth                     int // 0 when rows are unwrapped logical lines
+	nowrap                         bool
+	left                           int
+	overflow                       bool
 	column                         int
 	struckWidth                    int
 	open                           *scanCheckpoint
@@ -87,6 +91,21 @@ func (t *Text) SetWideAmbiguous(wide bool) {
 		t.wideAmbiguous, t.policyChanged = wide, true
 	}
 }
+
+// SetWrap chooses between wrapped rows and one row per logical line. Unwrapped
+// rows do not depend on the width, so resizing them needs no reindex.
+func (t *Text) SetWrap(wrap bool) {
+	if t.nowrap == wrap {
+		t.nowrap, t.policyChanged = !wrap, true
+	}
+}
+
+// SetLeft scrolls unwrapped rows horizontally to start at a display column.
+func (t *Text) SetLeft(column int) { t.left = max(0, column) }
+
+// Overflow reports whether the last rendered unwrapped rows continue past the
+// right edge, which bounds horizontal scrolling without measuring whole lines.
+func (t *Text) Overflow() bool { return t.overflow }
 func (t *Text) clusterWidth(text string) int {
 	if len(text) == 1 && text[0] >= ' ' && text[0] <= '~' {
 		return 1
@@ -125,6 +144,10 @@ func (t *Text) reset(width int, base int64, initial content.Style, underline con
 		return err
 	}
 	t.width, t.column, t.scanned, t.base = width, 0, base, base
+	t.indexWidth = width
+	if t.nowrap {
+		t.indexWidth = 0
+	}
 	t.style = initial
 	t.underlineColor = underline
 	t.open, t.policyChanged = nil, false
@@ -239,7 +262,11 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 	if source, ok := t.source.(interface{ Start() int64 }); ok {
 		base = source.Start()
 	}
-	if t.width != width || t.base != base || t.policyChanged {
+	key := width
+	if t.nowrap {
+		key = 0
+	}
+	if t.indexWidth != key || t.starts == nil || t.base != base || t.policyChanged {
 		initial, underline := t.styleAt(base)
 		if t.styleOffsets != nil {
 			if err := errors.Join(t.styleOffsets.err, t.styleValues.err, t.styleUnderlines.err); err != nil {
@@ -254,6 +281,9 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 		if index.err != nil {
 			return index.err
 		}
+	}
+	if t.width != width {
+		t.width, t.renderScratch = width, make([]byte, width+1)
 	}
 	end := t.source.Len()
 	if t.open != nil {
@@ -330,6 +360,18 @@ func (t *Text) LineCount() int {
 }
 
 func (t *Text) addASCII(data []byte, offset int64) error {
+	if t.nowrap {
+		for {
+			count := bytes.IndexByte(data, '\n')
+			if count < 0 {
+				return nil
+			}
+			if err := t.addCluster(content.Cluster{Token: content.Token{Rune: '\n', Start: offset + int64(count), End: offset + int64(count) + 1}, Text: "\n"}); err != nil {
+				return err
+			}
+			data, offset = data[count+1:], offset+int64(count)+1
+		}
+	}
 	if t.struckWidth > 0 && len(data) > 0 {
 		if err := t.addCluster(content.Cluster{Token: content.Token{Rune: rune(data[0]), Start: offset, End: offset + 1}, Text: string(data[:1])}); err != nil {
 			return err
@@ -394,6 +436,9 @@ func (t *Text) addCluster(cluster content.Cluster) error {
 		t.column = 0
 		t.struckWidth = 0
 		return nil
+	}
+	if t.nowrap {
+		return nil // Unwrapped rows only end at newlines; columns are rendered lazily.
 	}
 	if r == '\r' {
 		t.column = 0
@@ -487,7 +532,7 @@ func (t *Text) LineRow(line int) int {
 
 func (t *Text) Lines(top, height int) ([]string, error) {
 	var lines []string
-	t.rendered = nil
+	t.rendered, t.overflow = nil, false
 	for row := max(0, top); row < t.RowCount() && len(lines) < height; row++ {
 		end := t.scanned
 		if row+1 < t.starts.count {
@@ -517,3 +562,38 @@ func (t *Text) Lines(top, height int) ([]string, error) {
 }
 
 func (t *Text) Styled() [][]Glyph { return t.rendered }
+
+// columnScanLimit bounds the decode needed to place a match horizontally.
+const columnScanLimit = 16 << 20
+
+// ColumnAt returns the display column of offset within its row, or -1 when the
+// offset lies too far into the row to measure cheaply.
+func (t *Text) ColumnAt(offset int64) int {
+	if t.RowCount() == 0 {
+		return 0
+	}
+	row := t.RowAt(offset)
+	start := t.Offset(row)
+	if offset-start > columnScanLimit {
+		return -1
+	}
+	reader := content.NewGraphemeReader(t.source, start, offset, content.Style(t.rowStyles.at(row)), true, content.Color(t.rowUnderlines.at(row)))
+	column := 0
+	for {
+		token, err := reader.Next()
+		if err != nil {
+			return column
+		}
+		switch {
+		case token.Hidden:
+		case token.Rune == '\r':
+			column = 0
+		case token.Rune == '\b':
+			column = max(0, column-1)
+		case token.Rune == '\t':
+			column += 8 - column%8
+		default:
+			column += t.clusterWidth(token.Text)
+		}
+	}
+}

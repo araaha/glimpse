@@ -81,8 +81,10 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 					return err
 				}
 			}
-			if err := config.BindPFlag("display.ambiguous-width", cmd.Flags().Lookup("ambiguous-width")); err != nil {
-				return err
+			for _, name := range []string{"ambiguous-width", "wrap"} {
+				if err := config.BindPFlag("display."+name, cmd.Flags().Lookup(name)); err != nil {
+					return err
+				}
 			}
 
 			if configFile != "" {
@@ -121,6 +123,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().String("retention", "lossless", "stream retention: lossless or rolling (explicit history loss)")
 	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
 	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
+	root.Flags().Bool("wrap", true, "wrap long lines (toggle with w); otherwise scroll horizontally with h/l")
 	root.Flags().StringP("jump-target", "j", "1", "screen line for search matches and line jumps: 1 is the top, -1 the bottom, .5 the middle")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -2 like -1 with the statusline initially hidden, -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
 	return root
@@ -168,6 +171,11 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse search.highlight: %w", err)
 	}
 	options.NoSearchHighlight = !highlight
+	wrap, err := strconv.ParseBool(config.GetString("display.wrap"))
+	if err != nil {
+		return app.Options{}, fmt.Errorf("parse display.wrap: %w", err)
+	}
+	options.NoWrap = !wrap
 	if err := readAppearance(config, &options); err != nil {
 		return app.Options{}, err
 	}
