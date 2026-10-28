@@ -42,6 +42,8 @@ type Frame struct {
 	UnprintableStyle tcell.Style
 	// HexColors paint #RRGGBB codes with their own color, beneath Highlights.
 	HexColors []HexColor
+	// Ghost is a dimmed, ASCII completion of the : command drawn after its text.
+	Ghost string
 }
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.

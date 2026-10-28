@@ -335,6 +335,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				prefix = ":"
 			}
 			frame.Search = prefix + string(search.prompt.text)
+			frame.Ghost = search.prompt.ghost()
 			frame.SearchActive = true
 			frame.SearchCursor = 1 + search.prompt.cursor
 		}

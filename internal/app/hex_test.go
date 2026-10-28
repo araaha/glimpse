@@ -19,7 +19,7 @@ func TestRunHexColorsToggle(t *testing.T) {
 	viewer.press("R")
 	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.HexColors == nil })
 	viewer.press(":", "s", "e", "t", " ", "h", "e", "x", "-", "c", "o", "l", "o", "r", "s", "<Enter>")
-	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return len(frame.HexColors) == 7 && frame.Search == "hex-colors=true" })
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return len(frame.HexColors) == 7 && frame.Search == "hex-colors" })
 	viewer.press("q")
 	viewer.expectExit(t)
 }

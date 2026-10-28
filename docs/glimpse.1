@@ -243,15 +243,16 @@ Go to the first or last line.
 .BR :q ", " :quit
 Quit.
 .TP
-.BI ":set " OPTION "\fR, \fP:set no\-" OPTION
-Enable or disable
-.BR smart\-case ,
-.BR ignore\-case ,
-.BR case\-sensitive ,
-.BR incremental ,
-.BR highlight ,
+.BI ":set " OPTION "\fR, \fP:set no" OPTION
+Enable or disable an option, using vim's names:
+.BR ignorecase " (" ic ;
+.B noignorecase
+matches case exactly),
+.BR smartcase " (" scs ),
+.BR incsearch " (" is ),
+.BR hlsearch " (" hls ),
 .BR wrap ,
-.BR line\-numbers ,
+.BR number " (" nu ),
 or
 .BR hex\-colors .
 .TP
@@ -260,6 +261,25 @@ Change the jump target.
 .TP
 .BI ":set spool\-quota=" BYTES
 Raise the stream storage quota and resume reading.
+.PP
+In the
+.B :
+prompt,
+the first completion of the command or
+.B set
+option being typed is shown dimmed after the cursor.
+.B Tab
+inserts it, and further presses cycle through the other completions
+and back to the typed text;
+.B Shift\-Tab
+cycles backward.
+Typing
+.B n
+or
+.B no
+also offers the
+.BI no OPTION
+forms.
 .SH CONFIGURATION
 Settings are read from
 .I $XDG_CONFIG_HOME/glimpse/glimpse.toml
@@ -352,7 +372,9 @@ search\-accept, search\-cancel, search\-left, search\-right, search\-start,
 search\-end, search\-word\-left, search\-word\-right, search\-backspace,
 search\-delete, search\-delete\-word\-backward, search\-delete\-word\-forward,
 search\-clear\-before, search\-clear\-after, search\-history\-previous,
-search\-history\-next.
+search\-history\-next, search\-complete, search\-complete\-previous.
+Keys may be written as
+.BR <S\-Tab> .
 .PP
 Colors are ANSI palette names such as
 .BR red " or " bright\-blue ,

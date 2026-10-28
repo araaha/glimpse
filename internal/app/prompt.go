@@ -21,6 +21,7 @@ type prompt struct {
 	historyIndex int
 	draft        string
 	batching     bool
+	completion   *completion // set while : completion cycles
 }
 
 func newPrompt(backward bool, entries []string) *prompt {
@@ -86,6 +87,13 @@ func (p *prompt) wordRight() int {
 }
 
 func (p *prompt) edit(command keybind.Command) {
+	if command.Action == keybind.Complete || command.Action == keybind.CompletePrevious {
+		if p.command {
+			p.complete(command.Action == keybind.Complete)
+		}
+		return
+	}
+	p.completion = nil
 	if command.Action != keybind.Insert {
 		p.cursor = p.align(p.cursor, true)
 	}

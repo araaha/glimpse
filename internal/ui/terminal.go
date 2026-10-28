@@ -121,6 +121,11 @@ func (t *Terminal) Render(frame Frame) error {
 	if frame.Layout.SearchRow >= 0 {
 		text, cursor := searchLineWithPolicy(frame.Search, frame.SearchCursor, frame.Layout.Body.Width, frame.WideAmbiguous)
 		t.screen.PutStr(0, frame.Layout.SearchRow, text)
+		if frame.Ghost != "" {
+			used := (displaywidth.Options{EastAsianWidth: frame.WideAmbiguous}).String(text)
+			ghost := frame.Ghost[:min(len(frame.Ghost), max(0, frame.Layout.Body.Width-used))]
+			t.screen.PutStrStyled(used, frame.Layout.SearchRow, ghost, tcell.StyleDefault.Dim(true))
+		}
 		if frame.SearchActive && frame.Layout.Body.Width > 0 {
 			t.screen.ShowCursor(cursor, frame.Layout.SearchRow)
 		}
@@ -294,6 +299,7 @@ func KeyFromEvent(ev *tcell.EventKey) (keybind.Key, bool) {
 		tcell.KeyPgDn:       "<PageDown>",
 		tcell.KeyEnter:      "<Enter>",
 		tcell.KeyTab:        "<Tab>",
+		tcell.KeyBacktab:    "<S-Tab>",
 		tcell.KeyBackspace:  "<Backspace>",
 		tcell.KeyBackspace2: "<Backspace>",
 		tcell.KeyDelete:     "<Delete>",

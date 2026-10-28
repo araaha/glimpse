@@ -53,6 +53,8 @@ const (
 	ClearAfter         Action = "search-clear-after"
 	HistoryPrevious    Action = "search-history-previous"
 	HistoryNext        Action = "search-history-next"
+	Complete           Action = "search-complete"
+	CompletePrevious   Action = "search-complete-previous"
 )
 
 type Binding struct {
@@ -142,6 +144,7 @@ func searchDefaults() []Binding {
 		{ClearBefore, []Key{"<C-u>"}}, {ClearAfter, []Key{"<C-k>"}},
 		{HistoryPrevious, []Key{"<Up>"}}, {HistoryPrevious, []Key{"<C-p>"}},
 		{HistoryNext, []Key{"<Down>"}}, {HistoryNext, []Key{"<C-n>"}},
+		{Complete, []Key{"<Tab>"}}, {CompletePrevious, []Key{"<S-Tab>"}},
 	}
 }
 
@@ -244,7 +247,7 @@ func ParseKey(token string) (Key, error) {
 		}
 		named := false
 		switch base {
-		case "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown", "Enter", "Tab", "Backspace", "Delete", "Esc":
+		case "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown", "Enter", "Tab", "S-Tab", "Backspace", "Delete", "Esc":
 			named = true
 		}
 		literal := utf8.ValidString(base) && utf8.RuneCountInString(base) == 1
@@ -313,6 +316,8 @@ var Descriptions = map[Action]string{
 	ClearAfter:         "delete to the end",
 	HistoryPrevious:    "previous history entry",
 	HistoryNext:        "next history entry",
+	Complete:           "complete a : command, or cycle to the next completion",
+	CompletePrevious:   "cycle to the previous : command completion",
 }
 
 // Actions lists view and search-prompt actions in their default order.

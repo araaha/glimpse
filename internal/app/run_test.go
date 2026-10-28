@@ -80,7 +80,7 @@ func (v testViewer) press(keys ...string) {
 		code, named := map[string]tcell.Key{
 			"<Esc>": tcell.KeyEsc, "<Enter>": tcell.KeyEnter, "<Up>": tcell.KeyUp, "<Down>": tcell.KeyDown,
 			"<Left>": tcell.KeyLeft, "<Right>": tcell.KeyRight, "<Backspace>": tcell.KeyBackspace2,
-			"<End>": tcell.KeyEnd,
+			"<End>": tcell.KeyEnd, "<Tab>": tcell.KeyTab, "<S-Tab>": tcell.KeyBacktab,
 			"<C-w>": tcell.KeyCtrlW, "<C-a>": tcell.KeyCtrlA, "<C-e>": tcell.KeyCtrlE, "<C-u>": tcell.KeyCtrlU,
 		}[key]
 		if named {

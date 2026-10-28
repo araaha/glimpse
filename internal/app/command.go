@@ -15,6 +15,20 @@ type commandResult struct {
 	message string
 }
 
+// optionName resolves a boolean :set option or its vim short name, returning
+// "" for anything else.
+func optionName(name string) string {
+	if full, ok := map[string]string{"nu": "number", "hls": "hlsearch", "is": "incsearch", "ic": "ignorecase", "scs": "smartcase"}[name]; ok {
+		return full
+	}
+	for _, option := range setOptions {
+		if option == name {
+			return name
+		}
+	}
+	return ""
+}
+
 // hexColorsUnsupported explains why enabled hex colors draw nothing.
 const hexColorsUnsupported = "hex-colors needs a truecolor terminal (COLORTERM=truecolor)"
 
@@ -58,41 +72,31 @@ func (a *App) command(input string) (commandResult, error) {
 			a.JumpTarget = target
 			return commandResult{message: "jump-target=" + target.String()}, nil
 		}
-		enabled := true
 		if explicit {
-			var err error
-			enabled, err = strconv.ParseBool(value)
-			if err != nil {
-				return commandResult{}, fmt.Errorf("set %s requires true or false", name)
-			}
-		} else if strings.HasPrefix(name, "no-") {
-			name, enabled = strings.TrimPrefix(name, "no-"), false
+			return commandResult{}, fmt.Errorf("set %s takes no value", name)
 		}
-		switch name {
-		case "smart-case":
+		// Boolean options use vim's names: a no prefix disables, and the short
+		// names nu, hls, is, ic, and scs are accepted.
+		option, enabled := optionName(name), true
+		if option == "" && strings.HasPrefix(name, "no") {
+			option, enabled = optionName(strings.TrimPrefix(name, "no")), false
+		}
+		switch option {
+		case "smartcase":
 			a.SmartCase = enabled
 			if enabled {
 				a.IgnoreCase = false
 			}
-		case "ignore-case":
-			a.IgnoreCase = enabled
-			if enabled {
-				a.SmartCase = false
-			}
-		case "case-sensitive":
-			if enabled {
-				a.SmartCase, a.IgnoreCase = false, false
-			} else {
-				a.IgnoreCase = true
-				a.SmartCase = false
-			}
-		case "incremental":
+		case "ignorecase":
+			// noignorecase matches case exactly, also overriding smartcase.
+			a.IgnoreCase, a.SmartCase = enabled, false
+		case "incsearch":
 			a.IncrementalSearch = enabled
-		case "highlight":
+		case "hlsearch":
 			a.HighlightSearch = enabled
 		case "wrap":
 			a.Wrap = enabled
-		case "line-numbers":
+		case "number":
 			a.LineNumbers = enabled
 		case "hex-colors":
 			a.HexColors = enabled
@@ -102,7 +106,10 @@ func (a *App) command(input string) (commandResult, error) {
 		default:
 			return commandResult{}, fmt.Errorf("unknown option %q", name)
 		}
-		return commandResult{message: fmt.Sprintf("%s=%t", name, enabled)}, nil
+		if !enabled {
+			option = "no" + option
+		}
+		return commandResult{message: option}, nil
 	}
 	return commandResult{}, fmt.Errorf("unknown command %q", input)
 }
