@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,37 +95,52 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	jumpTop := func(row int) int {
 		return max(0, row-a.JumpTarget.Row(layout.Body.Height))
 	}
+	// The gutter holds line numbers plus a space. Its digit count only grows,
+	// because a wider gutter narrows wrapped text and restarts the line index.
+	gutterDigits := 0
+	gutter := func() int {
+		if !a.LineNumbers || layout.Body.Width <= max(3, gutterDigits)+1 {
+			return 0
+		}
+		return max(3, gutterDigits) + 1
+	}
+	textWidth := func() int { return layout.Body.Width - gutter() }
 	// revealColumn scrolls unwrapped rows so that offset is visible.
 	revealColumn := func(offset int64) {
 		if a.Wrap {
 			return
 		}
 		column := text.ColumnAt(offset)
-		if column >= 0 && (column < left || column >= left+layout.Body.Width) {
+		if column >= 0 && (column < left || column >= left+textWidth()) {
 			left = 0
-			if column >= layout.Body.Width {
-				left = column - layout.Body.Width/2
+			if column >= textWidth() {
+				left = column - textWidth()/2
 			}
 		}
 	}
 	updateText := func() error {
 		anchor := text.Offset(view.top)
 		text.SetWrap(a.Wrap)
-		reflow := indexedWidth != layout.Body.Width || indexedWrap != a.Wrap
+		reflow := indexedWidth != textWidth() || indexedWrap != a.Wrap
 		if reflow && indexedWidth != 0 && pendingLine == 0 && !hasPendingOffset && !wantBottom {
 			pendingOffset, hasPendingOffset, pendingSearch = anchor, true, false
 		}
-		if text.NeedsUpdate(layout.Body.Width, !reading) {
-			if err := text.UpdateFor(layout.Body.Width, !reading, indexSlice); err != nil {
+		if text.NeedsUpdate(textWidth(), !reading) {
+			if err := text.UpdateFor(textWidth(), !reading, indexSlice); err != nil {
 				return err
 			}
-			indexedWidth, indexedWrap = layout.Body.Width, a.Wrap
+			indexedWidth, indexedWrap = textWidth(), a.Wrap
 			if reflow {
 				view.top = text.RowAt(anchor)
 			}
 			dirty = true
 		}
-		pending := text.NeedsUpdate(layout.Body.Width, !reading)
+		if a.LineNumbers {
+			gutterDigits = max(gutterDigits, len(strconv.Itoa(text.LineCount())))
+		} else {
+			gutterDigits = 0
+		}
+		pending := text.NeedsUpdate(textWidth(), !reading)
 		if pendingLine > 0 && (pendingLine <= text.LineCount() || !pending) {
 			view.top = jumpTop(text.LineRow(pendingLine))
 			pendingLine = 0
@@ -145,14 +161,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		search.start(ctx, a.Document, chunks, indexed, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, include)
 	}
 	scheduleIndex := func() {
-		if text.NeedsUpdate(layout.Body.Width, !reading) {
+		if text.NeedsUpdate(textWidth(), !reading) {
 			indexWork.Reset(0)
 		}
 	}
 	jumpBottom := func() {
 		pendingLine, hasPendingOffset = 0, false
 		view.follow, view.bottom = false, false
-		wantBottom = text.NeedsUpdate(layout.Body.Width, !reading)
+		wantBottom = text.NeedsUpdate(textWidth(), !reading)
 		if wantBottom {
 			bottomEnd = a.Document.Len()
 		} else {
@@ -167,7 +183,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if err := updateText(); err != nil {
 			return err
 		}
-		if wantBottom && (text.Indexed() >= bottomEnd || !text.NeedsUpdate(layout.Body.Width, !reading)) {
+		if wantBottom && (text.Indexed() >= bottomEnd || !text.NeedsUpdate(textWidth(), !reading)) {
 			// Resolve only with the final layout, just before painting. G targets
 			// the input available when requested, not each successive indexed tail.
 			rows := min(text.RowCount(), text.RowAt(max(0, bottomEnd-1))+1)
@@ -192,7 +208,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			styled = text.Styled()
 		}
-		indexing := text.NeedsUpdate(layout.Body.Width, !reading)
+		indexing := text.NeedsUpdate(textWidth(), !reading)
 		target := top
 		if search.matched {
 			target = search.match
@@ -223,6 +239,15 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		if discarded > 0 && search.prompt == nil {
 			frame.Search += fmt.Sprintf(" [rolling history: %d bytes discarded]", discarded)
+		}
+		if width := gutter(); width > 0 {
+			frame.GutterWidth, frame.GutterStyle = width, a.LineNumberStyle
+			frame.Gutter = make([]string, len(lines))
+			for row := range lines {
+				if line, first := text.LineNumberAt(view.top + row); first {
+					frame.Gutter[row] = strconv.Itoa(line)
+				}
+			}
 		}
 		if a.HighlightSearch {
 			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
@@ -315,12 +340,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			if action == keybind.ToggleStatus {
 				a.UI.ToggleStatusline()
+			} else if action == keybind.ToggleLineNumbers {
+				a.LineNumbers = !a.LineNumbers
 			} else if action == keybind.ToggleWrap {
 				a.Wrap, left = !a.Wrap, 0
 			} else if action == keybind.ScrollLeft || action == keybind.ScrollRight {
 				// Unwrapped rows scroll by half a screen, as in less. Scrolling
 				// right stops once no visible row continues past the edge.
-				step := max(1, layout.Body.Width/2)
+				step := max(1, textWidth()/2)
 				if a.Wrap {
 					continue
 				} else if action == keybind.ScrollLeft {

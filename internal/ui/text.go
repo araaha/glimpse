@@ -597,3 +597,14 @@ func (t *Text) ColumnAt(offset int64) int {
 		}
 	}
 }
+
+// LineNumberAt returns the logical line shown on row and whether the row is
+// that line's first (unwrapped or first wrapped) row.
+func (t *Text) LineNumberAt(row int) (int, bool) {
+	if row < 0 || row >= t.RowCount() {
+		return 0, false
+	}
+	offset := t.Offset(row)
+	line := t.LogicalLineAt(offset)
+	return line, line > 0 && t.lineStarts.at(line-1) == offset
+}

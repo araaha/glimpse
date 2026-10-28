@@ -33,6 +33,7 @@ const (
 	ToggleWrap         Action = "toggle-wrap"
 	ScrollLeft         Action = "scroll-left"
 	ScrollRight        Action = "scroll-right"
+	ToggleLineNumbers  Action = "toggle-line-numbers"
 	Insert             Action = "insert"
 	SearchCancel       Action = "search-cancel"
 	Accept             Action = "search-accept"
@@ -91,6 +92,7 @@ func Defaults() []Binding {
 		{ScrollLeft, []Key{"<Left>"}},
 		{ScrollRight, []Key{"l"}},
 		{ScrollRight, []Key{"<Right>"}},
+		{ToggleLineNumbers, []Key{"#"}},
 	}
 }
 

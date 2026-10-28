@@ -19,7 +19,7 @@ func readAppearance(config *viper.Viper, options *app.Options) error {
 			return fmt.Errorf("unknown statusline option %q", key)
 		}
 	}
-	for _, path := range []string{"statusline", "statusline.styles", "search.highlight-style"} {
+	for _, path := range []string{"statusline", "statusline.styles", "search.highlight-style", "display.line-number-style"} {
 		if raw := config.Get(path); raw != nil {
 			if _, ok := raw.(map[string]any); !ok {
 				return fmt.Errorf("%s must be a table", path)
@@ -129,5 +129,9 @@ func readAppearance(config *viper.Viper, options *app.Options) error {
 		}
 	}
 	options.SearchHighlight, err = readColors("search.highlight-style")
+	if err != nil {
+		return err
+	}
+	options.LineNumberStyle, err = readColors("display.line-number-style")
 	return err
 }

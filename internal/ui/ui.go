@@ -33,6 +33,11 @@ type Frame struct {
 	Highlights     []Highlight
 	Styled         [][]Glyph
 	WideAmbiguous  bool
+	// Gutter holds a line number per body row ("" on wrapped continuation
+	// rows), right-aligned in GutterWidth-1 cells; text starts after it.
+	Gutter      []string
+	GutterWidth int
+	GutterStyle tcell.Style
 }
 
 // Glyphs are safe text plus explicit attributes, never terminal escape strings.

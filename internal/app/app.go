@@ -31,6 +31,7 @@ type Options struct {
 	AmbiguousWidth    int
 	Statusline        ui.StatuslineConfig
 	SearchHighlight   ui.Colors
+	LineNumberStyle   ui.Colors
 	JumpTarget        JumpTarget
 }
 
@@ -52,6 +53,7 @@ type App struct {
 	follow                        bool
 	Statusline                    *ui.Statusline
 	SearchHighlight               tcell.Style
+	LineNumberStyle               tcell.Style
 	JumpTarget                    JumpTarget
 }
 
@@ -64,6 +66,13 @@ func New(options Options) (*App, error) {
 	highlight, err := options.SearchHighlight.Style(tcell.StyleDefault)
 	if err != nil {
 		return nil, fmt.Errorf("search highlight: %w", err)
+	}
+	// Line numbers default to the palette's bright black, so they follow the
+	// terminal theme and stay quieter than the text.
+	numbers, _ := (ui.Colors{FG: "bright-black"}).Style(tcell.StyleDefault)
+	numbers, err = options.LineNumberStyle.Style(numbers)
+	if err != nil {
+		return nil, fmt.Errorf("line numbers: %w", err)
 	}
 	model, err := ui.NewModel(options.CmdHeight)
 	if err != nil {
@@ -127,6 +136,7 @@ func New(options Options) (*App, error) {
 		Statusline:        statusline,
 		SearchHighlight:   highlight,
 		JumpTarget:        options.JumpTarget,
+		LineNumberStyle:   numbers,
 	}, nil
 }
 

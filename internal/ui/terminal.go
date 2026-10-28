@@ -21,6 +21,17 @@ func NewTerminal(screen tcell.Screen) *Terminal { return &Terminal{screen: scree
 
 func (t *Terminal) Render(frame Frame) error {
 	t.screen.Fill(' ', tcell.StyleDefault)
+	gutter := frame.GutterWidth
+	for y, number := range frame.Gutter {
+		if y >= frame.Layout.Body.Height {
+			break
+		}
+		t.screen.FillArea(0, y, gutter, 1, ' ', frame.GutterStyle)
+		if len(number) > gutter-1 {
+			number = number[len(number)-(gutter-1):]
+		}
+		t.screen.PutStrStyled(gutter-1-len(number), y, number, frame.GutterStyle)
+	}
 	for y, line := range frame.Lines {
 		if y >= frame.Layout.Body.Height {
 			break
@@ -28,15 +39,15 @@ func (t *Terminal) Render(frame Frame) error {
 		if y < len(frame.Styled) {
 			continue
 		}
-		t.screen.PutStr(0, y, line)
+		t.screen.PutStr(gutter, y, line)
 	}
 	for row, glyphs := range frame.Styled {
 		if row >= frame.Layout.Body.Height {
 			break
 		}
 		for _, glyph := range glyphs {
-			if glyph.Column < frame.Layout.Body.Width {
-				t.screen.Put(glyph.Column, row, glyph.Text, terminalStyle(glyph.Style, glyph.UnderlineColor))
+			if gutter+glyph.Column < frame.Layout.Body.Width {
+				t.screen.Put(gutter+glyph.Column, row, glyph.Text, terminalStyle(glyph.Style, glyph.UnderlineColor))
 			}
 		}
 	}
@@ -44,7 +55,7 @@ func (t *Terminal) Render(frame Frame) error {
 		if mark.Row < 0 || mark.Row >= frame.Layout.Body.Height {
 			continue
 		}
-		for x := max(0, mark.Column); x < min(frame.Layout.Body.Width, mark.Column+mark.Width); {
+		for x := gutter + max(0, mark.Column); x < min(frame.Layout.Body.Width, gutter+mark.Column+mark.Width); {
 			text, style, width := t.screen.Get(x, mark.Row)
 			if width > 0 {
 				highlight := frame.HighlightStyle
