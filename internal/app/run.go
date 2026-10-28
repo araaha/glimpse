@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"glimpse/internal/keybind"
@@ -18,6 +20,10 @@ import (
 
 const sequenceTimeout = 90 * time.Millisecond
 const indexSlice = 2 * time.Millisecond
+
+// watchInterval is how often a regular file is checked for appends, truncation,
+// and (with follow-name) replacement.
+const watchInterval = 100 * time.Millisecond
 
 // Run owns input and the terminal until quit, cancellation, or an error. Closing
 // input must unblock a pending Read (as it does for files and pipes). name labels
@@ -47,11 +53,15 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	}
 	finished := make(chan struct{})
 	result := make(chan error, 1)
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	var watchers sync.WaitGroup
 	go func() {
 		defer close(finished)
 		result <- a.Ingest(input)
 	}()
 	defer func() {
+		stopWatch()
+		watchers.Wait()
 		runErr = errors.Join(runErr, input.Close(), a.Document.Close())
 		<-finished
 	}()
@@ -85,6 +95,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	// pendingSearch marks a pending offset as a search match, not a reflow anchor.
 	hasPendingOffset, wantBottom, pendingSearch := false, false, false
 	previousPaused := false
+	previousWatchStatus := ""
 	var deadline time.Time
 	pasting := false
 	layout := a.UI.Layout(screen.Size())
@@ -93,6 +104,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var bodyLayout ui.Layout
 	var bodyOffset, bodyBase int64
 	var bodyLeft int
+	var loadedGeneration int64
 	// jumpTop places row at the jump target; the view never starts above row 0.
 	jumpTop := func(row int) int {
 		return max(0, row-a.JumpTarget.Row(layout.Body.Height))
@@ -120,7 +132,40 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 		}
 	}
+	// reload starts over with a fresh index when the watched file was truncated
+	// or replaced; positions and matches in the old content are meaningless.
+	reload := func() error {
+		generation, reason := a.Document.Generation()
+		if generation == loadedGeneration {
+			return nil
+		}
+		replacement, err := ui.NewTextWithLimits(a.Document, a.metadataBudget, a.metadataQuota)
+		if err != nil {
+			return err
+		}
+		replacement.SetWideAmbiguous(a.wideAmbiguous)
+		if err := text.Close(); err != nil {
+			replacement.Close()
+			return err
+		}
+		text, loadedGeneration = replacement, generation
+		search.stop()
+		search.matched, search.repeats = false, nil
+		label := name
+		if label == "" {
+			label = "input"
+		}
+		search.message = fmt.Sprintf("%s %s; reloaded", label, reason)
+		pendingLine, hasPendingOffset, wantBottom = 0, false, false
+		view.top, left, gutterDigits, indexedWidth = 0, 0, 0, 0
+		bodyLines, bodyStyled, previousLength = nil, nil, -1
+		dirty = true
+		return nil
+	}
 	updateText := func() error {
+		if err := reload(); err != nil {
+			return err
+		}
 		anchor := text.Offset(view.top)
 		text.SetWrap(a.Wrap)
 		reflow := indexedWidth != textWidth() || indexedWrap != a.Wrap
@@ -158,7 +203,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		return nil
 	}
 	startSearch := func(origin int64, backward, include bool) {
-		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: a.Document.Start(), end: a.Document.Len()}
+		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: a.Document.Start(), end: a.Document.Len(), generation: loadedGeneration}
 		chunks, indexed := counts.chunksFor(key)
 		search.start(ctx, a.Document, chunks, indexed, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, include)
 	}
@@ -179,8 +224,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	}
 
 	draw := func(length int64) error {
+		// Reload before the layout, so a reload message gets its footer row.
+		if err := reload(); err != nil {
+			return err
+		}
 		paused, discarded := a.Document.Paused(), a.Document.Start()
-		a.UI.SetSearchVisible(search.prompt != nil || search.message != "" || paused || discarded > 0)
+		watchStatus := a.Document.WatchStatus()
+		a.UI.SetSearchVisible(search.prompt != nil || search.message != "" || paused || discarded > 0 || watchStatus != "")
 		layout = a.UI.Layout(screen.Size())
 		if err := updateText(); err != nil {
 			return err
@@ -203,7 +253,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if !cachedBody {
 			lines, err = text.Lines(view.top, layout.Body.Height)
 			if err != nil {
-				if errors.Is(err, pager.ErrEvicted) {
+				if errors.Is(err, pager.ErrEvicted) || errors.Is(err, pager.ErrTruncated) {
 					return nil
 				}
 				return err
@@ -215,7 +265,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if search.matched {
 			target = search.match
 		}
-		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len()}
+		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len(), generation: loadedGeneration}
 		state := ui.StatusState{
 			Mode: "VIEW", Filename: name, HasSearch: search.query != "",
 			TopLine: text.LogicalLineAt(top), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
@@ -237,6 +287,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			Status: bar.Text(), StatusBar: bar, StatusState: state,
 			Search: search.message, WideAmbiguous: a.wideAmbiguous, HighlightStyle: a.SearchHighlight,
 			Reading: reading, Indexing: indexing, SeekingEnd: wantBottom, Follow: view.follow, DocumentLength: a.Document.Len(),
+		}
+		if watchStatus != "" && search.prompt == nil {
+			frame.Search = watchStatus
 		}
 		if paused && search.prompt == nil {
 			frame.Search = "Storage paused: spool quota reached; :set spool-quota=BYTES to resume"
@@ -280,7 +333,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		bodyOffset, bodyBase, bodyLeft = top, discarded, left
 		previousLength = length
 		previousRows, previousIndexed = text.RowCount(), text.Indexed()
-		previousPaused = paused
+		previousPaused, previousWatchStatus = paused, watchStatus
 		scheduleIndex()
 		return nil
 	}
@@ -554,6 +607,15 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if err != nil {
 				return fmt.Errorf("read input: %w", err)
 			}
+			// Regular files are read in place; keep watching them for appends,
+			// truncation, and (with follow-name) replacement.
+			if file, ok := input.(*os.File); ok && a.Document.FileBacked() {
+				watchers.Add(1)
+				go func() {
+					defer watchers.Done()
+					a.Document.Watch(watchCtx, file, name, a.followName, watchInterval)
+				}()
+			}
 		case response := <-search.results:
 			if response.generation != search.generation {
 				continue
@@ -652,7 +714,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 			}
 			length := a.Document.Len()
-			if dirty || length != previousLength || a.Document.Paused() != previousPaused {
+			generation, _ := a.Document.Generation()
+			if dirty || length != previousLength || a.Document.Paused() != previousPaused || a.Document.WatchStatus() != previousWatchStatus || generation != loadedGeneration {
 				if err := draw(length); err != nil {
 					return err
 				}

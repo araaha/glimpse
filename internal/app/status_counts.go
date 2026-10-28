@@ -14,6 +14,7 @@ type countKey struct {
 	query         string
 	smart, ignore bool
 	base, end     int64
+	generation    int64 // document content generation; reloads invalidate counts
 }
 
 // Dense chunks only resolve the selected rank instead of retaining offsets.
@@ -99,7 +100,7 @@ func (s *statusCounts) stop() {
 func (s *statusCounts) close() { s.stop(); s.workers.Wait() }
 
 func sameCountQuery(a, b countKey) bool {
-	return a.query == b.query && a.smart == b.smart && a.ignore == b.ignore
+	return a.query == b.query && a.smart == b.smart && a.ignore == b.ignore && a.generation == b.generation
 }
 
 // chunksFor returns the exact chunk index for a snapshot, if one is ready, so

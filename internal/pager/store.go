@@ -11,6 +11,10 @@ import (
 var errNegativeOffset = errors.New("negative byte offset")
 var ErrEvicted = errors.New("requested bytes were discarded by rolling retention")
 
+// ErrTruncated reports that a backing file shrank below the bytes it promised;
+// a file watcher reloads the document shortly afterward.
+var ErrTruncated = fmt.Errorf("backing file was truncated: %w", io.ErrUnexpectedEOF)
+
 type StorageOptions struct {
 	MemoryBudget int64
 	SpoolQuota   int64
@@ -38,6 +42,8 @@ type Store struct {
 	externalOffset         int64
 	ring                   []byte
 	closed, paused         bool
+	generation             int64  // incremented whenever the content is replaced
+	reloadReason           string // why the current generation was loaded
 }
 
 func NewStore(chunkSize int) *Store {
@@ -88,6 +94,40 @@ func (s *Store) useFile(file io.ReaderAt, offset, length int64) error {
 	s.external, s.externalOffset, s.length = file, offset, length
 	s.chunks, s.resident = nil, 0
 	return nil
+}
+
+// grow extends a file-backed snapshot to length bytes after its offset.
+func (s *Store) grow(length int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.external != nil && length > s.length {
+		s.length = length
+	}
+}
+
+// reload replaces a file-backed snapshot's content, starting a new generation.
+func (s *Store) reload(file io.ReaderAt, offset, length int64, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return os.ErrClosed
+	}
+	s.external, s.externalOffset, s.length = file, offset, length
+	s.generation++
+	s.reloadReason = reason
+	return nil
+}
+
+func (s *Store) fileState() (io.ReaderAt, int64, int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.external, s.externalOffset, s.length
+}
+
+func (s *Store) Generation() (int64, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.generation, s.reloadReason
 }
 
 func (s *Store) spill() error {
@@ -234,7 +274,7 @@ func (s *Store) readAt(p []byte, off int64) (int, error) {
 			return n, err
 		}
 		if n < want {
-			return n, io.ErrUnexpectedEOF
+			return n, ErrTruncated
 		}
 	} else if s.spool != nil {
 		var err error

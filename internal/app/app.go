@@ -17,6 +17,7 @@ type Options struct {
 	CmdHeight         ui.CmdHeight
 	ChunkSize         int
 	Follow            bool
+	FollowName        bool
 	Keybinds          map[string][]string
 	SmartCase         bool
 	IgnoreCase        bool
@@ -50,7 +51,7 @@ type App struct {
 	LineNumbers                   bool
 	metadataBudget, metadataQuota int64
 	wideAmbiguous                 bool
-	follow                        bool
+	follow, followName            bool
 	Statusline                    *ui.Statusline
 	SearchHighlight               tcell.Style
 	LineNumberStyle               tcell.Style
@@ -133,6 +134,7 @@ func New(options Options) (*App, error) {
 		metadataQuota:     options.MetadataQuota,
 		wideAmbiguous:     options.AmbiguousWidth == 2,
 		follow:            options.Follow,
+		followName:        options.FollowName,
 		Statusline:        statusline,
 		SearchHighlight:   highlight,
 		JumpTarget:        options.JumpTarget,

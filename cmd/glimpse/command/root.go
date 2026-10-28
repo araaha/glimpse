@@ -110,6 +110,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.PersistentFlags().StringVar(&configFile, "config", "", "TOML config file (default: $XDG_CONFIG_HOME/glimpse/glimpse.toml)")
 	root.Flags().Int("chunk-size", 64*1024, "input storage chunk size in bytes")
 	root.Flags().Bool("follow", false, "follow the end of incoming input (toggle with F)")
+	root.Flags().Bool("follow-name", false, "watch a file by name, reopening it after rotation or replacement, instead of by descriptor")
 	root.Flags().Bool("smart-case", false, "ignore search case unless the query contains an uppercase letter")
 	root.Flags().Bool("ignore-case", false, "ignore search case, including uppercase queries")
 	root.Flags().Bool("case-sensitive", false, "match search case exactly")
@@ -143,7 +144,11 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 	if err != nil {
 		return app.Options{}, fmt.Errorf("parse follow: %w", err)
 	}
-	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow}
+	followName, err := strconv.ParseBool(config.GetString("follow-name"))
+	if err != nil {
+		return app.Options{}, fmt.Errorf("parse follow-name: %w", err)
+	}
+	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow, FollowName: followName}
 	if options.JumpTarget, err = app.ParseJumpTarget(config.GetString("jump-target")); err != nil {
 		return app.Options{}, err
 	}

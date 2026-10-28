@@ -34,6 +34,13 @@ func startTestViewer(t *testing.T, options Options, input string, width, height 
 
 func startNamedTestViewer(t *testing.T, options Options, input, name string, width, height int) testViewer {
 	t.Helper()
+	return startReaderViewer(t, options, io.NopCloser(strings.NewReader(input)), name, width, height, input == "")
+}
+
+// startReaderViewer runs the viewer on any input, such as a real file, and
+// waits for its first complete frame.
+func startReaderViewer(t *testing.T, options Options, reader io.ReadCloser, name string, width, height int, empty bool) testViewer {
+	t.Helper()
 	application, err := New(options)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +56,7 @@ func startNamedTestViewer(t *testing.T, options Options, input, name string, wid
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		result <- application.run(ctx, io.NopCloser(strings.NewReader(input)), name, screen)
+		result <- application.run(ctx, reader, name, screen)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -60,7 +67,7 @@ func startNamedTestViewer(t *testing.T, options Options, input, name string, wid
 		}
 	})
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
-		return (len(frame.Lines) > 0 || input == "") && !frame.Reading
+		return (len(frame.Lines) > 0 || empty) && !frame.Reading
 	})
 	return testViewer{screen: screen, frames: recorder.frames, result: result}
 }

@@ -3,6 +3,7 @@ package pager
 import (
 	"io"
 	"os"
+	"sync"
 )
 
 // DefaultChunkSize is the allocation unit for incoming bytes.
@@ -12,7 +13,10 @@ const DefaultChunkSize = 64 * 1024
 // This lets an unfinished (or arbitrarily long) line become available as it
 // arrives instead of waiting for a newline.
 type Document struct {
-	data *Store
+	data        *Store
+	watchMu     sync.Mutex
+	watchStatus string
+	loaded      []byte // fingerprint of a file-backed document when loaded
 }
 
 // NewDocument creates an empty document.
@@ -39,6 +43,7 @@ func (d *Document) ReadFrom(r io.Reader) (int64, error) {
 				if err := d.data.useFile(file, offset, length); err != nil {
 					return 0, err
 				}
+				d.loaded = sample(file, offset, length)
 				_, err := file.Seek(length, io.SeekCurrent)
 				return length, err
 			}

@@ -320,7 +320,7 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 			continue
 		}
 		token, err := reader.Next()
-		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) {
+		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) || errors.Is(err, pager.ErrTruncated) {
 			t.exhausted = true
 			t.finalized = complete
 			break
