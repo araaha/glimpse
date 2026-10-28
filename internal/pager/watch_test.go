@@ -111,6 +111,21 @@ func TestWatchDetectsRewriteLongerThanBefore(t *testing.T) {
 	}
 }
 
+func TestWatchDetectsSameSizeRewrite(t *testing.T) {
+	doc, path, _ := watchedDocument(t, "old\n", false)
+	if err := os.WriteFile(path, []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitContent(t, doc, "new\n")
+	deadline := time.Now().Add(2 * time.Second)
+	for generation, _ := doc.Generation(); generation != 1; generation, _ = doc.Generation() {
+		if time.Now().After(deadline) {
+			t.Fatal("same-size rewrite was not reloaded")
+		}
+		time.Sleep(testInterval)
+	}
+}
+
 func TestWatchByDescriptorKeepsRotatedFile(t *testing.T) {
 	doc, path, _ := watchedDocument(t, "old\n", false)
 	if err := os.Rename(path, path+".1"); err != nil {

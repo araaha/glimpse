@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 )
 
 // DefaultChunkSize is the allocation unit for incoming bytes.
@@ -17,6 +18,8 @@ type Document struct {
 	watchMu     sync.Mutex
 	watchStatus string
 	loaded      []byte // fingerprint of a file-backed document when loaded
+	// loadedModTime is the file's modification time when it was loaded.
+	loadedModTime time.Time
 }
 
 // NewDocument creates an empty document.
@@ -43,7 +46,7 @@ func (d *Document) ReadFrom(r io.Reader) (int64, error) {
 				if err := d.data.useFile(file, offset, length); err != nil {
 					return 0, err
 				}
-				d.loaded = sample(file, offset, length)
+				d.loaded, d.loadedModTime = sample(file, offset, length), info.ModTime()
 				_, err := file.Seek(length, io.SeekCurrent)
 				return length, err
 			}

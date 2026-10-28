@@ -45,12 +45,14 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 			opened.Close()
 		}
 	}()
-	known := d.loaded
-	load := func(file *os.File, size int64, reason string) bool {
-		if d.data.reload(file, 0, size, reason) != nil {
+	// known fingerprints the shown content; modified is the file's time when
+	// it was last verified, so an idle file costs only a stat per poll.
+	known, modified := d.loaded, d.loadedModTime
+	load := func(file *os.File, info os.FileInfo, reason string) bool {
+		if d.data.reload(file, 0, info.Size(), reason) != nil {
 			return false
 		}
-		known = sample(file, 0, size)
+		known, modified = sample(file, 0, info.Size()), info.ModTime()
 		return true
 	}
 	ticker := time.NewTicker(interval)
@@ -79,7 +81,7 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 					replacement.Close()
 					continue
 				}
-				if !load(replacement, info.Size(), "replaced") {
+				if !load(replacement, info, "replaced") {
 					replacement.Close()
 					return
 				}
@@ -95,18 +97,23 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 			continue
 		}
 		_, offset, length := d.data.fileState()
-		switch size := info.Size() - offset; {
-		case size > length && bytes.Equal(sample(current, offset, length), known):
-			d.data.grow(size)
-			known = sample(current, offset, size)
-		case size != length:
-			// A smaller file was truncated. A larger one whose known bytes
-			// changed was truncated and rewritten between polls. Content
-			// before the old offset may also have changed, so show the file
-			// from its start.
-			if !load(current, info.Size(), "truncated") {
-				return
+		size := info.Size() - offset
+		if size == length && info.ModTime().Equal(modified) {
+			continue
+		}
+		if size >= length && bytes.Equal(sample(current, offset, length), known) {
+			if size > length {
+				d.data.grow(size)
+				known = sample(current, offset, size)
 			}
+			modified = info.ModTime()
+			continue
+		}
+		// The file shrank, or the bytes already shown changed because it was
+		// truncated and rewritten between polls. Content before the old offset
+		// may also have changed, so show the file from its start.
+		if !load(current, info, "truncated") {
+			return
 		}
 	}
 }
