@@ -39,15 +39,28 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if shell, _ := cmd.Flags().GetString("completion"); shell != "" {
+				return writeCompletion(cmd.Root(), cmd.OutOrStdout(), shell)
+			}
+			if check, _ := cmd.Flags().GetBool("check-config"); check {
+				return checkConfig(config, cmd)
+			}
 			if checkTerminal != nil {
-				if err := checkTerminal(cmd.OutOrStdout()); err != nil {
+				if err := checkTerminal(cmd.OutOrStdout()); errors.Is(err, errStdoutNotTerminal) {
+					return passThrough(cmd, args)
+				} else if err != nil {
 					return err
 				}
 			}
 			options, err := readOptions(config, cmd)
 			if err != nil {
 				return err
+			}
+			if options.Label == "" && (len(args) == 0 || args[0] == "-") {
+				// man(1) names the page it pipes, e.g. "ls(1)".
+				options.Label = os.Getenv("MAN_PN")
 			}
 			application, err := app.New(options)
 			if err != nil {
@@ -60,6 +73,11 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 			return run(cmd.Context(), application, input, name)
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// Cobra's hidden completion command has none of the root's flags
+			// and needs no configuration.
+			if cmd != cmd.Root() {
+				return nil
+			}
 			config.SetEnvPrefix("GLIMPSE")
 			config.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 			config.AutomaticEnv()
@@ -107,7 +125,11 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 		},
 	}
 
+	root.SetVersionTemplate("glimpse {{.Version}}\n")
 	root.PersistentFlags().StringVar(&configFile, "config", "", "TOML config file (default: $XDG_CONFIG_HOME/glimpse/glimpse.toml)")
+	root.Flags().Bool("check-config", false, "validate the configuration (including unknown keys) and exit")
+	root.Flags().String("completion", "", "print a completion script for bash, zsh, fish, or powershell and exit")
+	root.Flags().String("label", "", "name shown for the input in the statusline (stdin defaults to $MAN_PN)")
 	root.Flags().Int("chunk-size", 64*1024, "input storage chunk size in bytes")
 	root.Flags().Bool("follow", false, "follow the end of incoming input (toggle with F)")
 	root.Flags().Bool("follow-name", false, "watch a file by name, reopening it after rotation or replacement, instead of by descriptor")
@@ -148,7 +170,7 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 	if err != nil {
 		return app.Options{}, fmt.Errorf("parse follow-name: %w", err)
 	}
-	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow, FollowName: followName}
+	options := app.Options{CmdHeight: ui.CmdHeight(height), ChunkSize: chunkSize, Follow: follow, FollowName: followName, Label: config.GetString("label")}
 	if options.JumpTarget, err = app.ParseJumpTarget(config.GetString("jump-target")); err != nil {
 		return app.Options{}, err
 	}

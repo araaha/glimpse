@@ -18,6 +18,7 @@ type Options struct {
 	ChunkSize         int
 	Follow            bool
 	FollowName        bool
+	Label             string // statusline name for the input instead of its path
 	Keybinds          map[string][]string
 	SmartCase         bool
 	IgnoreCase        bool
@@ -54,6 +55,7 @@ type App struct {
 	metadataBudget, metadataQuota int64
 	wideAmbiguous                 bool
 	follow, followName            bool
+	Label                         string // statusline name for the input; empty shows its path
 	Statusline                    *ui.Statusline
 	SearchHighlight               tcell.Style
 	LineNumberStyle               tcell.Style
@@ -148,6 +150,7 @@ func New(options Options) (*App, error) {
 		wideAmbiguous:     options.AmbiguousWidth == 2,
 		follow:            options.Follow,
 		followName:        options.FollowName,
+		Label:             options.Label,
 		Statusline:        statusline,
 		SearchHighlight:   highlight,
 		JumpTarget:        options.JumpTarget,

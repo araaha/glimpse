@@ -80,6 +80,18 @@ func TestRunFollowNameReopensRotatedFile(t *testing.T) {
 	viewer.expectExit(t)
 }
 
+func TestRunLabelNamesInputButWatchUsesPath(t *testing.T) {
+	path, file := openFollowed(t, "old\n")
+	viewer := startReaderViewer(t, Options{FollowName: true, Label: "service log"}, file, path, 60, 5, false)
+	writeLog(t, path, "new\n", os.O_TRUNC)
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.Lines[0] == "new" })
+	if frame.StatusState.Filename != "service log" || frame.Search != "service log truncated; reloaded" {
+		t.Fatalf("label = %q, message %q", frame.StatusState.Filename, frame.Search)
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}
+
 func TestRunWatchesByDescriptorByDefault(t *testing.T) {
 	path, file := openFollowed(t, "old\n")
 	viewer := startReaderViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch}, file, path, 60, 5, false)

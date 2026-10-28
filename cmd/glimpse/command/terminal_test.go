@@ -94,28 +94,30 @@ func TestInteractiveTerminalRejectsFilesAndPipes(t *testing.T) {
 	}
 }
 
-type unreadInput struct{ read bool }
-
-func (r *unreadInput) Read([]byte) (int, error) {
-	r.read = true
-	return 0, errors.New("input must not be read")
-}
-
-func TestNonInteractiveCommandRejectsBeforeOpeningInput(t *testing.T) {
+func TestRedirectedOutputPassesInputThrough(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	for _, args := range [][]string{{}, {filepath.Join(t.TempDir(), "missing")}} {
-		input := &unreadInput{}
+	path := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(path, []byte("from \x1b[31mfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		args       []string
+		stdin, out string
+	}{{nil, "piped\x00input", "piped\x00input"}, {[]string{path}, "", "from \x1b[31mfile\n"}} {
+		var out bytes.Buffer
 		root := NewRoot()
-		root.SetIn(input)
-		root.SetOut(io.Discard)
-		root.SetErr(io.Discard)
-		root.SetArgs(args)
-		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "requires an interactive terminal") {
-			t.Fatalf("args %v: error = %v", args, err)
+		root.SetIn(strings.NewReader(tt.stdin))
+		root.SetOut(&out)
+		root.SetArgs(tt.args)
+		if err := root.Execute(); err != nil || out.String() != tt.out {
+			t.Fatalf("args %v: output %q, error %v", tt.args, out.String(), err)
 		}
-		if input.read {
-			t.Fatal("noninteractive command consumed input")
-		}
+	}
+	root := NewRoot()
+	root.SetOut(io.Discard)
+	root.SetArgs([]string{filepath.Join(t.TempDir(), "missing")})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("missing file error = %v", err)
 	}
 }
 
@@ -146,6 +148,13 @@ func TestInteractiveCommandAllowsPipedInput(t *testing.T) {
 	if !called || !tty.closed {
 		t.Fatalf("interactive pipeline: runner called = %v, probe closed = %v", called, tty.closed)
 	}
+}
+
+type unreadInput struct{ read bool }
+
+func (r *unreadInput) Read([]byte) (int, error) {
+	r.read = true
+	return 0, errors.New("input must not be read")
 }
 
 func TestHelpWorksWithoutInteractiveTerminal(t *testing.T) {

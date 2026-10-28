@@ -1,0 +1,392 @@
+.TH GLIMPSE 1 2026-10-27 glimpse "User Commands"
+.SH NAME
+glimpse \- a terminal pager for huge files and endless streams
+.SH SYNOPSIS
+.B glimpse
+.RI [ OPTIONS ]
+.RI [ FILE | \- ]
+.br
+.IB command " | glimpse"
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B glimpse
+shows a file, or its standard input, one screen at a time.
+It stays responsive on very large files and on indefinitely long lines,
+renders ANSI colors and man-page overstrikes safely, and never passes
+terminal control sequences from the input through to the terminal.
+.PP
+Regular files are read in place and watched for appends, truncation, and
+(with
+.BR \-\-follow\-name )
+replacement.
+Pipes are buffered in memory up to
+.B \-\-memory\-budget
+and then in a private temporary spool file up to
+.BR \-\-spool\-quota .
+.PP
+When standard output is not a terminal,
+.B glimpse
+copies its input unchanged, like
+.BR cat (1).
+Keyboard input is read from the controlling terminal, so piped input works.
+.SH OPTIONS
+.SS Viewing
+.TP
+.B \-\-follow
+Keep the view at the end of the input as it grows (toggle with
+.BR F ).
+.TP
+.B \-\-follow\-name
+Watch a file by its path, like
+.BR "tail \-F" :
+reopen it when the path names a different file after rotation, and wait while
+it is missing.
+By default the open file is followed, like
+.BR "tail \-f" .
+.TP
+.BI \-j " N" "\fR, \fP\-\-jump\-target=" N
+Screen line where search matches and line jumps land:
+.B 1
+is the top,
+.B \-1
+the bottom, and a value with a decimal point such as
+.B .5
+a fraction of the screen height.
+.TP
+.BR \-N ", " \-\-line\-numbers
+Show a line number gutter (toggle with
+.BR # ).
+.TP
+.BR \-\-wrap =\fIbool\fP
+Wrap long lines (the default).
+With
+.BR \-\-wrap=false ,
+each line is one row and
+.BR h / l
+scroll horizontally.
+.TP
+.BI \-\-cmdheight " N"
+Footer layout:
+.B 0
+(default) statusline with a prompt row added on demand;
+.B 1
+permanent statusline and prompt rows;
+.B \-1
+one shared row that
+.B =
+toggles;
+.B \-2
+like \-1 with the statusline initially hidden.
+.TP
+.BI \-\-label " NAME"
+Name shown for the input in the statusline.
+Standard input defaults to
+.BR $MAN_PN ,
+which
+.BR man (1)
+sets to the page name.
+.TP
+.BI \-\-ambiguous\-width " N"
+Width of East Asian ambiguous characters: 1 or 2 cells.
+.SS Searching
+.TP
+.B \-\-smart\-case
+Ignore case unless the query contains an uppercase letter.
+.TP
+.B \-\-ignore\-case
+Always ignore case.
+.TP
+.B \-\-case\-sensitive
+Match case exactly.
+.TP
+.B \-\-incremental\-search
+Preview matches while typing a search.
+.TP
+.BR \-\-highlight\-search =\fIbool\fP
+Highlight visible matches (default true).
+.SS Storage
+.TP
+.BI \-\-memory\-budget " BYTES"
+Input bytes kept in memory before spooling (default 64 MiB).
+.TP
+.BI \-\-spool\-quota " BYTES"
+Maximum spooled stream size; reading pauses when it is full until
+.B :set spool\-quota=
+raises it (default 1 GiB).
+.TP
+.BI \-\-retention " MODE"
+.B lossless
+(default) keeps all input;
+.B rolling
+keeps only the most recent
+.B \-\-memory\-budget
+bytes of a stream, explicitly discarding older history.
+.TP
+.BI \-\-spool\-dir " DIR"
+Directory for the private spool file (default: the system temporary directory).
+.TP
+.BI \-\-metadata\-budget " BYTES"
+Row and line index bytes kept in memory (default 8 MiB).
+.TP
+.BI \-\-metadata\-quota " BYTES"
+Maximum row and line index size (default 256 MiB).
+.TP
+.BI \-\-chunk\-size " BYTES"
+Allocation unit for buffered input (default 64 KiB).
+.SS Other
+.TP
+.BI \-\-config " FILE"
+Read this configuration file instead of the default.
+.TP
+.B \-\-check\-config
+Validate the configuration, including option names that startup would
+ignore, print the file used, and exit.
+.TP
+.BI \-\-completion " SHELL"
+Print a completion script for
+.BR bash ,
+.BR zsh ,
+.BR fish ,
+or
+.B powershell
+and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a summary of the options and exit.
+.SH KEYS
+Press
+.B g?\&
+in
+.B glimpse
+for the bindings in effect, including configured ones.
+The defaults are:
+.TP 18
+.BR j ", " Down " / " k ", " Up
+Scroll one row.
+.TP
+.BR Ctrl\-F ", " PageDown ", " Space " / " Ctrl\-B ", " PageUp
+Scroll one screen.
+.TP
+.BR Ctrl\-D " / " Ctrl\-U
+Scroll half a screen.
+.TP
+.BR gg ", " Home " / " G ", " End
+Go to the first / last line;
+.IB N G
+goes to line
+.IR N .
+.TP
+.BR h ", " Left " / " l ", " Right
+Scroll unwrapped lines horizontally.
+.TP
+.BR / " / " ?
+Search forward / backward.
+.TP
+.BR n " / " N
+Repeat the search in the same / opposite direction.
+.TP
+.B :
+Enter a command.
+.TP
+.B F
+Toggle following the end of the input.
+.TP
+.B w
+Toggle line wrapping.
+.TP
+.B #
+Toggle line numbers.
+.TP
+.B =
+Toggle the statusline (cmdheight \-1 and \-2).
+.TP
+.B g?
+Show all bindings.
+.TP
+.B Esc
+Cancel a pending key sequence or search.
+.TP
+.BR q ", " zq ", " Ctrl\-C
+Quit.
+.SH COMMANDS
+.TP 22
+.BI : N
+Go to line
+.IR N .
+.TP
+.BR :top ", " :bottom
+Go to the first or last line.
+.TP
+.BR :q ", " :quit
+Quit.
+.TP
+.BI ":set " OPTION "\fR, \fP:set no\-" OPTION
+Enable or disable
+.BR smart\-case ,
+.BR ignore\-case ,
+.BR case\-sensitive ,
+.BR incremental ,
+.BR highlight ,
+.BR wrap ,
+or
+.BR line\-numbers .
+.TP
+.BI ":set jump\-target=" N
+Change the jump target.
+.TP
+.BI ":set spool\-quota=" BYTES
+Raise the stream storage quota and resume reading.
+.SH CONFIGURATION
+Settings are read from
+.I $XDG_CONFIG_HOME/glimpse/glimpse.toml
+(usually
+.IR ~/.config/glimpse/glimpse.toml ).
+Options override environment variables, which override the file.
+Every setting can be given as an environment variable named
+.B GLIMPSE_
+followed by its key in upper case with dots and hyphens replaced by
+underscores, for example
+.B GLIMPSE_CMDHEIGHT=1
+or
+.BR GLIMPSE_STATUSLINE_STYLES_MODE_BG=red .
+.PP
+Top-level keys are
+.BR cmdheight ,
+.BR chunk\-size ,
+.BR follow ,
+.BR follow\-name ,
+and
+.B jump\-target
+(a fraction must be written
+.B 0.5
+or
+.B \(dq.5\(dq
+in TOML).
+Tables:
+.TP
+.B [display]
+.BR wrap ,
+.BR line\-numbers ,
+.BR ambiguous\-width ;
+.B [display.line\-number\-style]
+.BR fg ,
+.BR bg ;
+.B [display.unprintable]
+.B char
+(one cell wide; default U+FFFD),
+.BR fg ,
+.BR bg .
+.TP
+.B [search]
+.BR smart\-case ,
+.BR ignore\-case ,
+.BR case\-sensitive ,
+.BR incremental ,
+.BR highlight ;
+.B [search.highlight\-style]
+.BR fg ,
+.BR bg .
+.TP
+.B [storage]
+.BR memory\-budget ,
+.BR spool\-quota ,
+.BR metadata\-budget ,
+.BR metadata\-quota ,
+.BR retention ,
+.BR spool\-dir .
+.TP
+.B [statusline]
+.B left
+and
+.B right
+section lists
+.RB ( mode ,
+.BR filename ,
+.BR search\-results ,
+.BR line\-numbers ),
+.BR separator\-open ,
+.BR separator\-close ,
+.BR fg ,
+.BR bg ;
+.B [statusline.styles]
+per-section
+.BR "{ fg, bg }" .
+.TP
+.B [keybinds]
+.IB action " = [" keys... ]
+replaces all default keys of an action with one key sequence, e.g.
+.BR "top = [\(dqg\(dq, \(dqg\(dq]" ;
+an empty array disables it.
+View actions:
+quit, cancel, top, bottom, up, down, page\-up, page\-down, half\-page\-up,
+half\-page\-down, follow, toggle\-status, search\-forward, search\-backward,
+search\-next, search\-previous, command, toggle\-wrap, scroll\-left,
+scroll\-right, toggle\-line\-numbers, help.
+Prompt actions:
+search\-accept, search\-cancel, search\-left, search\-right, search\-start,
+search\-end, search\-word\-left, search\-word\-right, search\-backspace,
+search\-delete, search\-delete\-word\-backward, search\-delete\-word\-forward,
+search\-clear\-before, search\-clear\-after, search\-history\-previous,
+search\-history\-next.
+.PP
+Colors are ANSI palette names such as
+.BR red " or " bright\-blue ,
+which follow the terminal theme, or
+.B #RRGGBB
+values.
+.SH ENVIRONMENT
+.TP
+.B MAN_PN
+Default label for standard input, set by
+.BR man (1).
+.TP
+.B XDG_CONFIG_HOME
+Location of the configuration directory.
+.TP
+.B XDG_DATA_HOME
+Location of the search and command histories.
+.TP
+.B TMPDIR
+Directory for spool and index temporary files.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/glimpse/glimpse.toml
+Configuration.
+.TP
+.I $XDG_DATA_HOME/glimpse/
+Search and command history.
+.SH EXAMPLES
+Use
+.B glimpse
+as the default pager, for man pages, and for git:
+.PP
+.RS
+.nf
+export PAGER=glimpse
+export MANPAGER=glimpse
+git config \-\-global core.pager glimpse
+.fi
+.RE
+.PP
+Follow a log through rotation, with line numbers:
+.PP
+.RS
+.nf
+glimpse \-\-follow \-\-follow\-name \-N /var/log/app.log
+.fi
+.RE
+.PP
+Watch an endless stream with bounded memory:
+.PP
+.RS
+.nf
+journalctl \-f | glimpse \-\-follow \-\-retention=rolling
+.fi
+.RE
+.SH SEE ALSO
+.BR less (1),
+.BR man (1),
+.BR tail (1)
