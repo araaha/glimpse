@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,6 +18,9 @@ type Document struct {
 	data        *Store
 	watchMu     sync.Mutex
 	watchStatus string
+	// recheckName asks a descriptor watcher to compare its path once, as
+	// after an editor that saves by renaming a new file over the old one.
+	recheckName atomic.Bool
 	loaded      []byte // fingerprint of a file-backed document when loaded
 	// loadedModTime is the file's modification time when it was loaded.
 	loadedModTime time.Time

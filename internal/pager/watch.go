@@ -26,6 +26,11 @@ func (d *Document) WatchStatus() string {
 	return d.watchStatus
 }
 
+// RecheckName makes the next poll reopen the watched path if it now names a
+// different file, even when following by descriptor. Editors such as vim save
+// by renaming a new file over the old one, which a descriptor never sees.
+func (d *Document) RecheckName() { d.recheckName.Store(true) }
+
 func (d *Document) setWatchStatus(status string) {
 	d.watchMu.Lock()
 	defer d.watchMu.Unlock()
@@ -63,17 +68,24 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 			return
 		case <-ticker.C:
 		}
-		if byName && path != "" {
+		// A one-time recheck reopens a replaced path but, unlike following by
+		// name, ignores a missing path and keeps the descriptor.
+		once := !byName && d.recheckName.Swap(false)
+		if (byName || once) && path != "" {
 			named, err := os.Stat(path)
-			if err != nil {
+			if err != nil && byName {
 				d.setWatchStatus(fmt.Sprintf("%s: %v; waiting for it to return", path, unwrapPathError(err)))
 				continue
 			}
-			d.setWatchStatus("")
-			if info, err := current.Stat(); err != nil || !os.SameFile(info, named) {
+			if byName {
+				d.setWatchStatus("")
+			}
+			if info, err := current.Stat(); named != nil && (err != nil || !os.SameFile(info, named)) {
 				replacement, err := os.Open(path)
 				if err != nil {
-					d.setWatchStatus(fmt.Sprintf("%s: %v; waiting for it to return", path, unwrapPathError(err)))
+					if byName {
+						d.setWatchStatus(fmt.Sprintf("%s: %v; waiting for it to return", path, unwrapPathError(err)))
+					}
 					continue
 				}
 				info, err := replacement.Stat()

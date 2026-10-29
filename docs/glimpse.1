@@ -19,6 +19,7 @@ Regular files are read in place and watched for appends, truncation, and
 (with
 .BR \-\-follow\-name )
 replacement.
+A reloaded file keeps the line at the jump-target row on screen.
 Pipes are buffered in memory up to
 .B \-\-memory\-budget
 and then in a private temporary spool file up to
@@ -442,6 +443,9 @@ They are never pasted into the command text, so quote
 .B \(dq$file\(dq
 as in any shell script.
 A failing command's exit status is shown on the message row.
+After a foreground command, a file it replaced by renaming a new one over it,
+as vim saves, is reopened even without
+.BR \-\-follow\-name .
 Each table becomes the action
 .BR run\- \fIN\fP
 in config order; its keys may not be bound to anything else.

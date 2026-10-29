@@ -140,13 +140,22 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 		}
 	}
+	// targetLine is the file line at the jump-target row. It is $line for run
+	// commands, so a search or :N jump sets it to the line it lands on, and the
+	// line a reload returns to.
+	targetLine := func() int {
+		row := min(view.top+a.JumpTarget.Row(layout.Body.Height), text.RowCount()-1)
+		return max(1, text.LogicalLineAt(text.Offset(max(0, row))))
+	}
 	// reload starts over with a fresh index when the watched file was truncated
-	// or replaced; positions and matches in the old content are meaningless.
+	// or replaced; byte positions and matches in the old content are meaningless,
+	// but the same line number is kept on screen (clamped to the new length).
 	reload := func() error {
 		generation, reason := a.Document.Generation()
 		if generation == loadedGeneration {
 			return nil
 		}
+		keep := targetLine()
 		replacement, err := ui.NewTextWithLimits(a.Document, a.metadataBudget, a.metadataQuota)
 		if err != nil {
 			return err
@@ -165,7 +174,10 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			label = "input"
 		}
 		search.message = fmt.Sprintf("%s %s; reloaded", label, reason)
-		pendingLine, hasPendingOffset, wantBottom = 0, false, false
+		pendingLine, hasPendingOffset, wantBottom = keep, false, false
+		if view.follow {
+			pendingLine = 0 // Following keeps the end in view instead.
+		}
 		view.top, left, gutterDigits, indexedWidth = 0, 0, 0, 0
 		bodyLines, bodyStyled, previousLength = nil, nil, -1
 		dirty = true
@@ -353,12 +365,6 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	var applyPrompt func([]keybind.Command) (bool, error)
 	// Background run commands report failures here; glimpse never waits on them.
 	runFailures := make(chan string, 8)
-	// commandLine is $line for run commands: the file line at the jump-target
-	// row, so a search or :N jump sets it to the line it lands on.
-	commandLine := func() int {
-		row := min(view.top+a.JumpTarget.Row(layout.Body.Height), text.RowCount()-1)
-		return max(1, text.LogicalLineAt(text.Offset(max(0, row))))
-	}
 	apply := func(actions []keybind.Command) (bool, error) {
 		// The help screen takes over navigation; closing it drops the rest of
 		// the batch rather than acting on the document behind it.
@@ -446,10 +452,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				search.message = ""
 				if !ok && file == "" {
 					search.message = "No file to edit"
-				} else if cmd := shellCommand(run.Command, commandLine(), file); run.Background {
+				} else if cmd := shellCommand(run.Command, targetLine(), file); run.Background {
 					runBackground(cmd, run.label, runFailures)
-				} else if err := runForeground(screen, cmd); err != nil {
-					search.message = commandFailure(run.label, err)
+				} else {
+					if err := runForeground(screen, cmd); err != nil {
+						search.message = commandFailure(run.label, err)
+					}
+					// An editor may have saved by renaming a new file over the old one.
+					a.Document.RecheckName()
 				}
 				dirty = true
 				continue

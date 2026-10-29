@@ -170,3 +170,38 @@ func TestStreamsAreNotFileBacked(t *testing.T) {
 		t.Fatal("stream reported as file-backed")
 	}
 }
+
+func TestRecheckNameReopensRenamedOverFile(t *testing.T) {
+	doc, path, _ := watchedDocument(t, "old\n", false)
+	// Saving by rename, as vim does: the descriptor keeps the old file.
+	replacement := path + ".new"
+	if err := os.WriteFile(replacement, []byte("new content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * testInterval)
+	waitContent(t, doc, "old\n")
+	doc.RecheckName()
+	waitContent(t, doc, "new content\n")
+	if _, reason := doc.Generation(); reason != "replaced" {
+		t.Fatalf("reason = %q", reason)
+	}
+	// The reopened file is now followed by descriptor.
+	appendFile(t, path, "more\n")
+	waitContent(t, doc, "new content\nmore\n")
+}
+
+func TestRecheckNameIgnoresMissingPath(t *testing.T) {
+	doc, path, _ := watchedDocument(t, "kept\n", false)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	doc.RecheckName()
+	time.Sleep(10 * testInterval)
+	if status := doc.WatchStatus(); status != "" {
+		t.Fatalf("one-time recheck set a waiting status: %q", status)
+	}
+	waitContent(t, doc, "kept\n")
+}
