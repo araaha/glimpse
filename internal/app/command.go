@@ -94,6 +94,8 @@ func (a *App) command(input string) (commandResult, error) {
 			a.IncrementalSearch = enabled
 		case "hlsearch":
 			a.HighlightSearch = enabled
+		case "magic":
+			a.Magic = enabled
 		case "wrap":
 			a.Wrap = enabled
 		case "number":

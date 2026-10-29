@@ -23,6 +23,7 @@ type Options struct {
 	SmartCase         bool
 	IgnoreCase        bool
 	CaseSensitive     bool
+	Literal           bool // match searches literally instead of as regular expressions
 	IncrementalSearch bool
 	NoSearchHighlight bool
 	NoWrap            bool
@@ -50,6 +51,7 @@ type App struct {
 	SearchKeys                    *keybind.Matcher
 	SmartCase                     bool
 	IgnoreCase                    bool
+	Magic                         bool // searches are regular expressions; \V makes them literal
 	IncrementalSearch             bool
 	HighlightSearch               bool
 	Wrap                          bool
@@ -151,6 +153,7 @@ func New(options Options) (*App, error) {
 		SearchKeys:        searchKeys,
 		SmartCase:         options.SmartCase && !options.CaseSensitive,
 		IgnoreCase:        options.IgnoreCase && !options.CaseSensitive,
+		Magic:             !options.Literal,
 		IncrementalSearch: options.IncrementalSearch,
 		HighlightSearch:   !options.NoSearchHighlight,
 		Wrap:              !options.NoWrap,

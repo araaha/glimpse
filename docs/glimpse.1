@@ -120,6 +120,12 @@ Preview matches while typing a search.
 .TP
 .BR \-\-highlight\-search =\fIbool\fP
 Highlight visible matches (default true).
+.TP
+.BR \-\-regex =\fIbool\fP
+Treat searches as regular expressions (default true);
+false matches them literally.
+See
+.BR "SEARCH PATTERNS" .
 .SS Storage
 .TP
 .BI \-\-memory\-budget " BYTES"
@@ -246,6 +252,37 @@ Cancel a pending key sequence or search.
 .TP
 .BR q ", " zq ", " Ctrl\-C
 Quit.
+.SH SEARCH PATTERNS
+Searches are regular expressions in RE2 syntax, as in Go's
+.B regexp
+package (Perl-like, without backreferences or lookaround),
+matched against the text without its styling.
+A match never spans lines:
+.B ^
+and
+.B $
+match at line starts and ends.
+Matches of a pattern that is plain text may overlap;
+other matches do not, and empty matches are skipped.
+In lines longer than 128 KiB, matches longer than 64 KiB may be missed.
+An invalid pattern is reported after the prompt and moves nothing.
+.PP
+As in vim, these escapes may appear anywhere in a pattern:
+.TP 6
+.B \eV
+Match the rest of the pattern literally;
+there,
+.B \e\e
+is one backslash.
+.TP
+.BR \ec " / " \eC
+Ignore case / match case exactly, overriding the case options.
+.PP
+Smart case ignores uppercase letters that are part of an escape,
+such as
+.B \eS
+or
+.BR \ep{Lu} .
 .SH COMMANDS
 .TP 22
 .BI : N
@@ -266,6 +303,10 @@ matches case exactly),
 .BR smartcase " (" scs ),
 .BR incsearch " (" is ),
 .BR hlsearch " (" hls ),
+.B magic
+(regular expression searches;
+.B nomagic
+searches literally),
 .BR wrap ,
 .BR number " (" nu ),
 or
@@ -342,7 +383,8 @@ Tables:
 .BR ignore\-case ,
 .BR case\-sensitive ,
 .BR incremental ,
-.BR highlight ;
+.BR highlight ,
+.BR regex ;
 .B [search.highlight\-style]
 .BR fg ,
 .BR bg .

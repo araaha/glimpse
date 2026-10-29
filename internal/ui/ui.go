@@ -42,7 +42,8 @@ type Frame struct {
 	UnprintableStyle tcell.Style
 	// HexColors paint #RRGGBB codes with their own color, beneath Highlights.
 	HexColors []HexColor
-	// Ghost is a dimmed, ASCII completion of the : command drawn after its text.
+	// Ghost is dimmed ASCII drawn after the prompt text: a completion of the :
+	// command, or why a search pattern is invalid.
 	Ghost string
 }
 

@@ -95,12 +95,12 @@ func (s *searchState) echoQuery() string {
 
 // start searches in the background. With an exact chunk index for the current
 // snapshot, chunks without matches are skipped instead of scanned.
-func (s *searchState) start(ctx context.Context, source search.Source, chunks search.Chunks, indexed bool, origin, anchor int64, backward, smartCase, ignoreCase, include bool) {
+func (s *searchState) start(ctx context.Context, source search.Source, query search.Query, chunks search.Chunks, indexed bool, origin, anchor int64, backward, include bool) {
 	repeats := s.repeats
 	s.stop()
 	s.repeats, s.busy = repeats, true
 	ctx, s.cancel = context.WithCancel(ctx)
-	generation, query := s.generation, s.query
+	generation := s.generation
 	s.message = s.echoQuery()
 	s.workers.Add(1)
 	go func() {
@@ -108,13 +108,18 @@ func (s *searchState) start(ctx context.Context, source search.Source, chunks se
 		var result search.Result
 		var err error
 		if indexed {
-			result, err = search.FindInChunks(ctx, source, query, chunks, origin, anchor, backward, smartCase, ignoreCase, include)
+			result, err = search.FindInChunks(ctx, source, query, chunks, origin, anchor, backward, include)
 		} else {
-			result, err = search.FindFrom(ctx, source, query, origin, anchor, backward, smartCase, ignoreCase, include)
+			result, err = search.FindFrom(ctx, source, query, origin, anchor, backward, include)
 		}
 		select {
 		case s.results <- searchResponse{generation, result, err}:
 		case <-ctx.Done():
 		}
 	}()
+}
+
+// query interprets search text with the current case and magic options.
+func (a *App) query(text string) search.Query {
+	return search.Query{Text: text, SmartCase: a.SmartCase, IgnoreCase: a.IgnoreCase, Literal: !a.Magic}
 }

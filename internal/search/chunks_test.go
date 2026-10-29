@@ -49,7 +49,7 @@ func checkChunkCounts(t testing.TB, chunks Chunks, base, end int64, want []match
 func checkChunks(t testing.TB, input, query string, smart, ignore bool, size int64) {
 	t.Helper()
 	ctx := context.Background()
-	options := Options{Query: query, SmartCase: smart, IgnoreCase: ignore, ChunkSize: size, Workers: 3}
+	options := Options{Query: literal(query, smart, ignore), ChunkSize: size, Workers: 3}
 	source := benchmarkSource{strings.NewReader(input)}
 	want := referenceMatches(t, input, query, smart, ignore)
 	chunks, err := UpdateChunks(ctx, source, Chunks{}, 0, source.Len(), options)
@@ -115,7 +115,7 @@ func checkChunks(t testing.TB, input, query string, smart, ignore bool, size int
 			}
 			for _, backward := range []bool{false, true} {
 				for _, include := range []bool{false, true} {
-					got, err := FindInChunks(ctx, source, query, chunks, origin, anchor, backward, smart, ignore, include)
+					got, err := FindInChunks(ctx, source, literal(query, smart, ignore), chunks, origin, anchor, backward, include)
 					want := referenceResult(want, origin, backward, include)
 					if got != want || err != nil {
 						t.Fatalf("FindInChunks(%q, %q) origin %d anchor %d backward %v include %v = %+v, %v; want %+v (chunks %+v)", input, query, origin, anchor, backward, include, got, err, want, chunks.List)
@@ -148,7 +148,7 @@ func TestChunksMatchReference(t *testing.T) {
 func TestChunksRejectNewlineInsideHiddenString(t *testing.T) {
 	input := "hit\n\x1b]0;x\nhit\x07hit\nhit\n"
 	source := benchmarkSource{strings.NewReader(input)}
-	chunks, err := UpdateChunks(context.Background(), source, Chunks{}, 0, source.Len(), Options{Query: "hit", ChunkSize: 1, Workers: 4})
+	chunks, err := UpdateChunks(context.Background(), source, Chunks{}, 0, source.Len(), Options{Query: literal("hit", false, false), ChunkSize: 1, Workers: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestChunksCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	source := benchmarkSource{strings.NewReader(strings.Repeat("hit\n", 1000))}
-	if _, err := UpdateChunks(ctx, source, Chunks{}, 0, source.Len(), Options{Query: "hit", ChunkSize: 64, Workers: 2}); err == nil {
+	if _, err := UpdateChunks(ctx, source, Chunks{}, 0, source.Len(), Options{Query: literal("hit", false, false), ChunkSize: 64, Workers: 2}); err == nil {
 		t.Fatal("canceled count succeeded")
 	}
 }

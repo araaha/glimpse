@@ -10,7 +10,7 @@ import (
 // have a no form, offered once the word being completed starts like it.
 var (
 	commandNames = []string{"bottom", "q", "quit", "set", "top"}
-	setOptions   = []string{"hex-colors", "hlsearch", "ignorecase", "incsearch", "jump-target=", "number", "smartcase", "spool-quota=", "wrap"}
+	setOptions   = []string{"hex-colors", "hlsearch", "ignorecase", "incsearch", "jump-target=", "magic", "number", "smartcase", "spool-quota=", "wrap"}
 )
 
 // completion cycles vim style: the first step replaces the word before the

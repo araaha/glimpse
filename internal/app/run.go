@@ -224,9 +224,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		return nil
 	}
 	startSearch := func(origin int64, backward, include bool) {
-		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: a.Document.Start(), end: a.Document.Len(), generation: loadedGeneration}
+		key := countKey{query: a.query(search.query), base: a.Document.Start(), end: a.Document.Len(), generation: loadedGeneration}
 		chunks, indexed := counts.chunksFor(key)
-		search.start(ctx, a.Document, chunks, indexed, origin, text.SearchAnchor(origin), backward, a.SmartCase, a.IgnoreCase, include)
+		search.start(ctx, a.Document, key.query, chunks, indexed, origin, text.SearchAnchor(origin), backward, include)
 	}
 	scheduleIndex := func() {
 		if text.NeedsUpdate(textWidth(), !reading) {
@@ -286,7 +286,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		if search.matched {
 			target = search.match
 		}
-		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len(), generation: loadedGeneration}
+		key := countKey{query: a.query(search.query), base: discarded, end: a.Document.Len(), generation: loadedGeneration}
 		state := ui.StatusState{
 			Mode: ui.ModeView, Filename: display, FilenamePath: displayPath, HasSearch: search.query != "",
 			TopLine: text.LogicalLineAt(top), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
@@ -331,7 +331,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			frame.HexColors = text.HexColors(lines, view.top)
 		}
 		if a.HighlightSearch {
-			frame.Highlights = text.Highlights(lines, view.top, search.query, a.SmartCase, a.IgnoreCase)
+			frame.Highlights = text.Highlights(lines, view.top, key.query)
 		}
 		if help != nil {
 			helpView.top = min(helpView.top, max(0, len(help)-layout.Body.Height))
@@ -348,6 +348,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			}
 			frame.Search = prefix + string(search.prompt.text)
 			frame.Ghost = search.prompt.ghost()
+			if !search.prompt.command && len(search.prompt.text) > 0 {
+				if err := a.query(string(search.prompt.text)).Validate(); err != nil {
+					frame.Ghost = "  " + err.Error()
+				}
+			}
 			frame.SearchActive = true
 			frame.SearchCursor = 1 + search.prompt.cursor
 		}
@@ -523,6 +528,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			view.top = text.RowAt(p.origin)
 			return
 		}
+		if a.query(query).Validate() != nil {
+			// Keep the view and the previous matches until the pattern is valid.
+			search.query, search.backward = search.original.query, search.original.backward
+			search.match, search.matched = search.original.match, search.original.matched
+			search.message = ""
+			return
+		}
 		search.query, search.backward, search.matched = query, p.backward, false
 		startSearch(p.origin, p.backward, true)
 	}
@@ -592,6 +604,12 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 				}
 				if err := search.history.Add(query); err != nil {
 					search.warning = fmt.Sprintf("history: %v", err)
+				}
+				if err := a.query(query).Validate(); err != nil {
+					search.query, search.backward = search.original.query, search.original.backward
+					search.match, search.matched = search.original.match, search.original.matched
+					search.message = err.Error()
+					break
 				}
 				search.query, search.backward, search.matched = query, backward, false
 				view.follow, view.bottom = false, false

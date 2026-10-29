@@ -26,12 +26,12 @@ func TestCommands(t *testing.T) {
 			t.Fatalf("accepted %q", input)
 		}
 	}
-	for _, input := range []string{"set ic", "set smartcase", "set incsearch", "set nohls", "set nonumber", "set nowrap"} {
+	for _, input := range []string{"set ic", "set smartcase", "set incsearch", "set nohls", "set nonumber", "set nowrap", "set nomagic"} {
 		if _, err := a.command(input); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !a.SmartCase || a.IgnoreCase || !a.IncrementalSearch || a.HighlightSearch || a.LineNumbers || a.Wrap {
+	if !a.SmartCase || a.IgnoreCase || !a.IncrementalSearch || a.HighlightSearch || a.LineNumbers || a.Wrap || a.Magic {
 		t.Fatalf("unexpected options: %+v", a)
 	}
 	if got, err := a.command("set noignorecase"); err != nil || got.message != "noignorecase" || a.SmartCase || a.IgnoreCase {

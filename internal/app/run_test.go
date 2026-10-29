@@ -1048,3 +1048,40 @@ func TestNavigation(t *testing.T) {
 		t.Fatal("F did not enable following")
 	}
 }
+
+func TestRunRegexSearch(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch, IncrementalSearch: true}, "one\nfoo1\nbar\nfoo22 end\na.c\nabc\n", 20, 4)
+	viewer.press("/")
+	viewer.typeText(`^foo\d+`)
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, firstFrameLine("foo1"))
+	viewer.press("n")
+	waitFrame(t, viewer.frames, firstFrameLine("foo22 end"))
+	// An invalid pattern is explained while typing and neither moves the view
+	// nor replaces the previous search.
+	viewer.press("/")
+	viewer.typeText("a(")
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.Search == "/a(" })
+	if frame.Ghost != "  invalid pattern: missing closing )" || !firstFrameLine("foo22 end")(frame) {
+		t.Fatalf("invalid preview: ghost %q, lines %q", frame.Ghost, frame.Lines)
+	}
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("invalid pattern: missing closing )", false))
+	viewer.press("n")
+	waitFrame(t, viewer.frames, firstFrameLine("foo1"))
+	viewer.press("/")
+	viewer.typeText(`\Va.c`)
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, firstFrameLine("a.c"))
+	viewer.press(":")
+	viewer.typeText("set nomagic")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("nomagic", false))
+	viewer.press("/")
+	viewer.typeText("^foo")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("Pattern not found: ^foo", false))
+	viewer.press("q")
+	viewer.expectExit(t)
+}

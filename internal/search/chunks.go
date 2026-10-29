@@ -71,18 +71,17 @@ func (c Chunks) Find(offset int64) int {
 	return i
 }
 
-// Options describe one literal query and how its chunks are scanned.
+// Options describe one query and how its chunks are scanned.
 type Options struct {
-	Query                 string
-	SmartCase, IgnoreCase bool
-	ChunkSize             int64 // DefaultChunkSize when zero.
-	Workers               int   // One when zero.
+	Query     Query
+	ChunkSize int64 // DefaultChunkSize when zero.
+	Workers   int   // One when zero.
 }
 
 // WalkRange visits matches starting in [start, through], decoding no further
 // than limit. start must be a restart point.
-func WalkRange(ctx context.Context, source Source, query string, start, through, limit int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
-	return walk(ctx, source, query, start, limit, through, smartCase, ignoreCase, visit)
+func WalkRange(ctx context.Context, source Source, query Query, start, through, limit int64, visit func(start, end int64) bool) error {
+	return walk(ctx, source, query, start, limit, through, visit)
 }
 
 // UpdateChunks returns chunks covering [base, end) of source, reusing previous
@@ -168,7 +167,7 @@ func countChunks(ctx context.Context, source Source, start, end, limit int64, op
 		}
 		result := scanned{chunk: Chunk{Start: start, End: end}}
 		var err error
-		result.straddled, result.chunk.open, err = walkChecked(ctx, source, options.Query, start, limit, end-1, boundary, options.SmartCase, options.IgnoreCase, func(int64, int64) bool {
+		result.straddled, result.chunk.open, err = walkChecked(ctx, source, options.Query, start, limit, end-1, boundary, func(int64, int64) bool {
 			result.chunk.Count++
 			return true
 		})
@@ -270,7 +269,7 @@ func lineStart(source Source, from, end int64) (int64, error) {
 // chunks without matches, so a distant or wrapped match costs at most a scan
 // of the origin's chunk and of the chunk holding the match. anchor is a known
 // restart point at or before origin, letting nearby matches avoid a chunk scan.
-func FindInChunks(ctx context.Context, source Source, query string, chunks Chunks, origin, anchor int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
+func FindInChunks(ctx context.Context, source Source, query Query, chunks Chunks, origin, anchor int64, backward, include bool) (Result, error) {
 	list := chunks.List
 	if chunks.Total() == 0 {
 		return Result{}, nil
@@ -288,7 +287,7 @@ func FindInChunks(ctx context.Context, source Source, query string, chunks Chunk
 	// first and last return a chunk's first/last match through lastStart.
 	first := func(start, through int64, want func(int64) bool) (Result, error) {
 		var found Result
-		err := WalkRange(ctx, source, query, start, through, limit, smartCase, ignoreCase, func(offset, _ int64) bool {
+		err := WalkRange(ctx, source, query, start, through, limit, func(offset, _ int64) bool {
 			if want(offset) {
 				found = Result{Offset: offset, Found: true}
 				return false
@@ -299,7 +298,7 @@ func FindInChunks(ctx context.Context, source Source, query string, chunks Chunk
 	}
 	last := func(start, through int64, want func(int64) bool) (Result, error) {
 		var found Result
-		err := WalkRange(ctx, source, query, start, through, limit, smartCase, ignoreCase, func(offset, _ int64) bool {
+		err := WalkRange(ctx, source, query, start, through, limit, func(offset, _ int64) bool {
 			if want(offset) {
 				found = Result{Offset: offset, Found: true}
 			}

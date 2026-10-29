@@ -11,10 +11,9 @@ import (
 )
 
 type countKey struct {
-	query         string
-	smart, ignore bool
-	base, end     int64
-	generation    int64 // document content generation; reloads invalidate counts
+	query      search.Query
+	base, end  int64
+	generation int64 // document content generation; reloads invalidate counts
 }
 
 // Dense chunks only resolve the selected rank instead of retaining offsets.
@@ -100,20 +99,20 @@ func (s *statusCounts) stop() {
 func (s *statusCounts) close() { s.stop(); s.workers.Wait() }
 
 func sameCountQuery(a, b countKey) bool {
-	return a.query == b.query && a.smart == b.smart && a.ignore == b.ignore && a.generation == b.generation
+	return a.query == b.query && a.generation == b.generation
 }
 
 // chunksFor returns the exact chunk index for a snapshot, if one is ready, so
 // searches can skip chunks without matches.
 func (s *statusCounts) chunksFor(key countKey) (search.Chunks, bool) {
-	if s.last == nil || s.last.key != key || s.last.err != nil || key.query == "" {
+	if s.last == nil || s.last.key != key || s.last.err != nil || key.query.Text == "" {
 		return search.Chunks{}, false
 	}
 	return s.last.chunks, true
 }
 
 func (s *statusCounts) request(ctx context.Context, source search.Source, key countKey, target int64, matched, enabled bool) {
-	if !enabled || key.query == "" {
+	if !enabled || key.query.Text == "" {
 		if s.running {
 			s.stop()
 		}
@@ -150,7 +149,7 @@ func (s *statusCounts) request(ctx context.Context, source search.Source, key co
 		defer s.workers.Done()
 		result := countResult{key: key, generation: generation, target: target, rankChunk: -1}
 		source := countSnapshot{Source: source, key: key}
-		options := search.Options{Query: key.query, SmartCase: key.smart, IgnoreCase: key.ignore, ChunkSize: chunkSize, Workers: max(1, runtime.GOMAXPROCS(0)-1)}
+		options := search.Options{Query: key.query, ChunkSize: chunkSize, Workers: max(1, runtime.GOMAXPROCS(0)-1)}
 		result.chunks, result.err = search.UpdateChunks(ctx, source, previous, key.base, key.end, options)
 		result.total = result.chunks.Total()
 		if result.err == nil && matched {
@@ -173,13 +172,13 @@ func (r *countResult) resolveRank(ctx context.Context, source search.Source, max
 	r.rankChunk = c
 	if chunk.Count <= maxOffsets {
 		r.offsets = make([]int64, 0, chunk.Count)
-		return search.WalkRange(ctx, source, r.key.query, chunk.Start, chunk.End-1, r.key.end, r.key.smart, r.key.ignore, func(offset, _ int64) bool {
+		return search.WalkRange(ctx, source, r.key.query, chunk.Start, chunk.End-1, r.key.end, func(offset, _ int64) bool {
 			r.offsets = append(r.offsets, offset)
 			return true
 		})
 	}
 	var seen int64
-	err := search.WalkRange(ctx, source, r.key.query, chunk.Start, r.target, r.key.end, r.key.smart, r.key.ignore, func(offset, _ int64) bool {
+	err := search.WalkRange(ctx, source, r.key.query, chunk.Start, r.target, r.key.end, func(offset, _ int64) bool {
 		seen++
 		if offset == r.target {
 			r.within = seen

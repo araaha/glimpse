@@ -33,7 +33,7 @@ func TestAnchoredSearchSkipsPrefixAndUnneededSuffix(t *testing.T) {
 		input := prefix + "hit\norigin\nhit\n" + strings.Repeat("suffix\n", 100000)
 		anchor := int64(len(prefix))
 		source := &guardedSource{benchmarkSource: benchmarkSource{strings.NewReader(input)}, minimum: anchor}
-		got, err := FindFrom(context.Background(), source, "hit", anchor+4, anchor, backward, false, false, false)
+		got, err := FindFrom(context.Background(), source, literal("hit", false, false), anchor+4, anchor, backward, false)
 		want := anchor + 11
 		if backward {
 			want = anchor
@@ -122,7 +122,7 @@ func checkFastSearch(t testing.TB, input, query string, smart, ignore bool) {
 	source := benchmarkSource{strings.NewReader(input)}
 	want := referenceMatches(t, input, query, smart, ignore)
 	var got []matchRange
-	err := Walk(context.Background(), source, query, 0, source.Len(), smart, ignore, func(start, end int64) bool {
+	err := Walk(context.Background(), source, literal(query, smart, ignore), 0, source.Len(), func(start, end int64) bool {
 		got = append(got, matchRange{start, end})
 		return true
 	})
@@ -153,7 +153,7 @@ func checkFastSearch(t testing.TB, input, query string, smart, ignore bool) {
 		}
 		for _, backward := range []bool{false, true} {
 			for _, include := range []bool{false, true} {
-				got, err := FindFrom(context.Background(), source, query, origin, anchor, backward, smart, ignore, include)
+				got, err := FindFrom(context.Background(), source, literal(query, smart, ignore), origin, anchor, backward, include)
 				want := referenceResult(want, origin, backward, include)
 				if got != want || err != nil {
 					t.Fatalf("FindFrom origin %d anchor %d backward %v include %v = %+v, %v; want %+v", origin, anchor, backward, include, got, err, want)

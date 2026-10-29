@@ -82,7 +82,7 @@ func knownKey(key string) bool {
 		"storage.memory-budget", "storage.spool-quota", "storage.metadata-budget",
 		"storage.metadata-quota", "storage.retention", "storage.spool-dir",
 		"search.smart-case", "search.ignore-case", "search.case-sensitive",
-		"search.incremental", "search.highlight",
+		"search.incremental", "search.highlight", "search.regex",
 		"search.highlight-style.fg", "search.highlight-style.bg":
 		return true
 	}

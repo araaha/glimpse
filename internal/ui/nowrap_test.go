@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"glimpse/internal/pager"
+	"glimpse/internal/search"
 )
 
 func unwrappedText(t *testing.T, input string, width int) (*Text, *countedTextSource) {
@@ -115,7 +116,7 @@ func TestUnwrappedRenderingReadsOnlyThePrefix(t *testing.T) {
 		if err != nil || len(lines) != 2 || lines[1] != "" || !text.Overflow() {
 			t.Fatalf("lines = %q, %v", lines, err)
 		}
-		text.Highlights(lines, 0, "a", false, false)
+		text.Highlights(lines, 0, search.Query{Text: "a"})
 		if source.readBytes > 256<<10 {
 			t.Fatalf("read %d bytes for a 24-column window", source.readBytes)
 		}

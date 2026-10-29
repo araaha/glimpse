@@ -22,7 +22,7 @@ func TestCommandCompletions(t *testing.T) {
 		{"set h", 5, 4, []string{"hex-colors", "hlsearch"}},
 		{"set  j", 6, 5, []string{"jump-target="}},
 		{"set now", 7, 4, []string{"nowrap"}},
-		{"set n", 5, 4, []string{"nohex-colors", "nohlsearch", "noignorecase", "noincsearch", "nonumber", "nosmartcase", "nowrap", "number"}},
+		{"set n", 5, 4, []string{"nohex-colors", "nohlsearch", "noignorecase", "noincsearch", "nomagic", "nonumber", "nosmartcase", "nowrap", "number"}},
 		{"set nu", 6, 4, []string{"number"}},
 		{"set noj", 7, 4, nil},
 		{"set wrap x", 10, 9, nil},

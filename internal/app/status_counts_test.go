@@ -34,7 +34,7 @@ func awaitCounts(t *testing.T, counts *statusCounts) *countResult {
 
 func TestStatusCountsCacheAndOrdinal(t *testing.T) {
 	source := countTestSource{strings.NewReader(strings.Repeat("hit\n", 1000))}
-	key := countKey{query: "hit", end: source.Len()}
+	key := countKey{query: search.Query{Text: "hit"}, end: source.Len()}
 	counts := newStatusCounts()
 	defer counts.close()
 	counts.request(context.Background(), source, key, 4*499, true, true)
@@ -76,10 +76,10 @@ func TestStatusCountsVisibleSearchSemantics(t *testing.T) {
 	source := countTestSource{strings.NewReader(input)}
 	counts := newStatusCounts()
 	defer counts.close()
-	key := countKey{query: "hit", ignore: true, end: source.Len()}
+	key := countKey{query: search.Query{Text: "hit", IgnoreCase: true}, end: source.Len()}
 	target := int64(strings.LastIndex(input, "HIT"))
 	var wantTotal, wantCurrent int64
-	search.Walk(context.Background(), source, "hit", 0, source.Len(), false, true, func(offset, end int64) bool {
+	search.Walk(context.Background(), source, key.query, 0, source.Len(), func(offset, end int64) bool {
 		wantTotal++
 		if offset == target {
 			wantCurrent = wantTotal
@@ -117,7 +117,7 @@ func TestStatusCountsCancellationAndStaleResults(t *testing.T) {
 	source := gatedCountSource{countTestSource{strings.NewReader("first\nsecond\nsecond")}, make(chan struct{}, 2), gate}
 	counts := newStatusCounts()
 	defer func() { release(); counts.close() }()
-	first := countKey{query: "first", end: source.Len()}
+	first := countKey{query: search.Query{Text: "first"}, end: source.Len()}
 	counts.request(context.Background(), source, first, 0, false, false)
 	if counts.running {
 		t.Fatal("disabled section started a scan")
@@ -134,7 +134,7 @@ func TestStatusCountsCancellationAndStaleResults(t *testing.T) {
 		t.Fatal("hiding the statusline did not cancel a running count")
 	}
 	second := first
-	second.query = "second"
+	second.query = search.Query{Text: "second"}
 	counts.request(context.Background(), source, second, 6, true, true)
 	select {
 	case <-source.started:
@@ -146,7 +146,7 @@ func TestStatusCountsCancellationAndStaleResults(t *testing.T) {
 	}
 	release()
 	result := awaitCounts(t, counts)
-	if result.key.query != "second" || result.total != 2 || result.err != nil {
+	if result.key.query.Text != "second" || result.total != 2 || result.err != nil {
 		t.Fatalf("replacement counts = %+v", result)
 	}
 	counts.request(context.Background(), source, second, 6, true, false)
@@ -161,7 +161,7 @@ func TestStatusCountsAppendAndRollingInvalidation(t *testing.T) {
 	doc.Write([]byte("hit\nhit\n"))
 	counts := newStatusCounts()
 	defer counts.close()
-	key := countKey{query: "hit", end: doc.Len()}
+	key := countKey{query: search.Query{Text: "hit"}, end: doc.Len()}
 	counts.request(context.Background(), doc, key, 0, true, true)
 	awaitCounts(t, counts)
 	doc.Write([]byte("hit\n"))
@@ -208,7 +208,7 @@ func (failedCountSource) ReadAt([]byte, int64) (int, error) {
 func TestStatusCountsFailureDoesNotLoop(t *testing.T) {
 	counts := newStatusCounts()
 	defer counts.close()
-	key := countKey{query: "hit", end: 10}
+	key := countKey{query: search.Query{Text: "hit"}, end: 10}
 	counts.request(context.Background(), failedCountSource{}, key, 0, true, true)
 	if result := awaitCounts(t, counts); result.err == nil {
 		t.Fatal("read error lost")
@@ -226,7 +226,7 @@ func TestStatusCountsFailureDoesNotLoop(t *testing.T) {
 // dense chunks resolve only the selected rank.
 func TestStatusCountsRanksAcrossChunks(t *testing.T) {
 	source := countTestSource{strings.NewReader(strings.Repeat("hit hit\n", 500))}
-	key := countKey{query: "hit", end: source.Len()}
+	key := countKey{query: search.Query{Text: "hit"}, end: source.Len()}
 	for _, maxOffsets := range []int64{defaultMaxChunkOffsets, 2} {
 		counts := newStatusCounts()
 		counts.chunkSize, counts.maxOffsets = 64, maxOffsets
@@ -278,7 +278,7 @@ func TestStatusCountsAppendRescansTail(t *testing.T) {
 	counts := newStatusCounts()
 	defer counts.close()
 	counts.chunkSize = 256
-	key := countKey{query: "hit", end: doc.Len()}
+	key := countKey{query: search.Query{Text: "hit"}, end: doc.Len()}
 	counts.request(context.Background(), doc, key, 0, false, true)
 	before := awaitCounts(t, counts).chunks.List
 	doc.Write([]byte("hi"))

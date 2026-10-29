@@ -74,7 +74,7 @@ func TestRunStatuslineExternalSample(t *testing.T) {
 	}
 	source := countTestSource{strings.NewReader(string(input))}
 	var total int64
-	if err := search.Walk(context.Background(), source, "commit", 0, source.Len(), false, false, func(start, end int64) bool { total++; return true }); err != nil {
+	if err := search.Walk(context.Background(), source, search.Query{Text: "commit"}, 0, source.Len(), func(start, end int64) bool { total++; return true }); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())

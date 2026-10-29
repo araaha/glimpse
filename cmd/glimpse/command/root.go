@@ -89,7 +89,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 					return err
 				}
 			}
-			for flag, key := range map[string]string{"incremental-search": "search.incremental", "highlight-search": "search.highlight"} {
+			for flag, key := range map[string]string{"incremental-search": "search.incremental", "highlight-search": "search.highlight", "regex": "search.regex"} {
 				if err := config.BindPFlag(key, cmd.Flags().Lookup(flag)); err != nil {
 					return err
 				}
@@ -138,6 +138,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Bool("case-sensitive", false, "match search case exactly")
 	root.Flags().Bool("incremental-search", false, "preview matches while editing a search")
 	root.Flags().Bool("highlight-search", true, "highlight visible search matches")
+	root.Flags().Bool("regex", true, "treat searches as regular expressions (\\V in a search makes the rest literal)")
 	storage := pager.DefaultStorageOptions()
 	root.Flags().Int64("memory-budget", storage.MemoryBudget, "resident input byte budget")
 	root.Flags().Int64("spool-quota", storage.SpoolQuota, "lossless stream quota in bytes; pause when full")
@@ -200,6 +201,11 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		return app.Options{}, fmt.Errorf("parse search.highlight: %w", err)
 	}
 	options.NoSearchHighlight = !highlight
+	regex, err := strconv.ParseBool(config.GetString("search.regex"))
+	if err != nil {
+		return app.Options{}, fmt.Errorf("parse search.regex: %w", err)
+	}
+	options.Literal = !regex
 	wrap, err := strconv.ParseBool(config.GetString("display.wrap"))
 	if err != nil {
 		return app.Options{}, fmt.Errorf("parse display.wrap: %w", err)

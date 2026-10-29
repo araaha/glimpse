@@ -163,6 +163,43 @@ func TestSearchCaseConfiguration(t *testing.T) {
 	}
 }
 
+func TestSearchRegexConfiguration(t *testing.T) {
+	for _, tt := range []struct {
+		name, config, env, wantErr string
+		args                       []string
+		want                       bool
+	}{
+		{name: "default", want: true},
+		{name: "TOML", config: "[search]\nregex = false\n"},
+		{name: "environment overrides TOML", config: "[search]\nregex = false\n", env: "true", want: true},
+		{name: "flag overrides environment", env: "true", args: []string{"--regex=false"}},
+		{name: "invalid", config: "[search]\nregex = 'maybe'\n", wantErr: "search.regex"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", dir)
+			t.Setenv("GLIMPSE_SEARCH_REGEX", tt.env)
+			path := filepath.Join(dir, "test.toml")
+			if err := os.WriteFile(path, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			root := newRoot(func(_ context.Context, application *app.App, input io.ReadCloser, _ string) error {
+				defer input.Close()
+				if application.Magic != tt.want {
+					t.Fatalf("Magic = %v, want %v", application.Magic, tt.want)
+				}
+				return nil
+			}, nil)
+			root.SetIn(strings.NewReader(""))
+			root.SetArgs(append([]string{"--config", path}, tt.args...))
+			err := root.Execute()
+			if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestJumpTargetConfiguration(t *testing.T) {
 	for _, tt := range []struct {
 		name, config, env, wantErr string

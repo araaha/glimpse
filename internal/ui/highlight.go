@@ -89,8 +89,8 @@ func (t *Text) scanVisible(rows, top, runes int, scan func(start, end int64)) {
 
 // Highlights maps overlapping source matches to rendered glyphs, never to
 // expanded tabs or other transformed display text. Glyph memory is viewport-bound.
-func (t *Text) Highlights(lines []string, top int, query string, smart, ignore bool) []Highlight {
-	if query == "" || len(lines) == 0 {
+func (t *Text) Highlights(lines []string, top int, query search.Query) []Highlight {
+	if query.Text == "" || len(lines) == 0 {
 		return nil
 	}
 	cells := t.sourceCells()
@@ -101,8 +101,35 @@ func (t *Text) Highlights(lines []string, top int, query string, smart, ignore b
 		overlapping(cells, start, end, func(i int) { cells[i].marked = true })
 		return true
 	}
-	t.scanVisible(len(lines), top, utf8.RuneCountInString(query), func(start, end int64) {
-		_ = search.Walk(context.Background(), t.source, query, start, end, smart, ignore, mark)
-	})
+	walk := func(start, end int64) { _ = search.Walk(context.Background(), t.source, query, start, end, mark) }
+	switch {
+	case !query.IsRegex():
+		t.scanVisible(len(lines), top, utf8.RuneCountInString(query.Text), walk)
+	case t.nowrap:
+		t.scanVisible(len(lines), top, search.MaxMatchBytes/4, walk)
+	default:
+		t.scanLines(len(lines), top, walk)
+	}
 	return t.marked(cells)
+}
+
+// scanLines calls scan over the whole logical lines touching the screen, as
+// regular expression matches need a line's start and end. On a very long line
+// it starts at a row boundary and stops a bounded distance from the screen.
+func (t *Text) scanLines(rows, top int, scan func(start, end int64)) {
+	first, last := t.Offset(top), t.scanned
+	if row := top + rows; row < t.RowCount() {
+		last = t.Offset(row)
+	}
+	reach := int64(4 * search.MaxMatchBytes)
+	start := t.Offset(t.RowAt(max(t.base, first-reach)))
+	end := min(t.scanned, last+reach)
+	if t.lineStarts != nil {
+		line := t.LogicalLineAt(first)
+		start = max(start, t.lineStarts.at(max(0, line-1)))
+		if next := t.LogicalLineAt(max(first, last-1)); next < t.lineStarts.count {
+			end = min(end, t.lineStarts.at(next))
+		}
+	}
+	scan(start, end)
 }

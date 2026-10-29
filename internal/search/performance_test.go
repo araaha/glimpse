@@ -59,7 +59,7 @@ func BenchmarkFind(b *testing.B) {
 				if tt.anchored {
 					start = anchor
 				}
-				if _, err := FindFrom(context.Background(), source, tt.query, tt.origin, start, tt.backward, false, false, false); err != nil {
+				if _, err := FindFrom(context.Background(), source, literal(tt.query, false, false), tt.origin, start, tt.backward, false); err != nil {
 					b.Fatal(err)
 				}
 			}

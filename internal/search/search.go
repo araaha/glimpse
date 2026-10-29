@@ -21,20 +21,21 @@ type Result struct {
 	Wrapped bool
 }
 
-// Find performs a literal, rune-aware search. Origin is a byte offset; include
-// allows a match exactly at origin. Smart case folds only queries without any
-// uppercase letters; ignoreCase folds every query unless smart case overrides it.
-// KMP keeps both working memory and read buffers bounded by
-// the query size, even on an indefinitely long logical line.
-func Find(ctx context.Context, source Source, query string, origin int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
-	return FindFrom(ctx, source, query, origin, sourceStart(source), backward, smartCase, ignoreCase, include)
+// Find performs a rune-aware search. Origin is a byte offset; include allows a
+// match exactly at origin. Smart case folds only queries without any uppercase
+// letters; ignoreCase folds every query unless smart case overrides it. Literal
+// queries use KMP, which keeps both working memory and read buffers bounded by
+// the query size, even on an indefinitely long logical line; regular
+// expressions buffer at most a line, or a window of a very long one.
+func Find(ctx context.Context, source Source, query Query, origin int64, backward, include bool) (Result, error) {
+	return FindFrom(ctx, source, query, origin, sourceStart(source), backward, include)
 }
 
 // FindFrom accepts a known-safe logical-line start at or before origin. It tries
 // that nearby range first, falling back to the prefix only when necessary. The
 // caller must obtain anchor from decoded content, not raw newline byte searches:
 // newlines may occur inside hidden OSC/DCS strings.
-func FindFrom(ctx context.Context, source Source, query string, origin, anchor int64, backward, smartCase, ignoreCase, include bool) (Result, error) {
+func FindFrom(ctx context.Context, source Source, query Query, origin, anchor int64, backward, include bool) (Result, error) {
 	base := sourceStart(source)
 	end := source.Len()
 	origin = min(max(base, origin), end)
@@ -48,7 +49,7 @@ func FindFrom(ctx context.Context, source Source, query string, origin, anchor i
 	var firstWrapped Result
 	scan := func(start, lastStart int64, wantEligible, wrapped bool) (Result, error) {
 		var found Result
-		err := walk(ctx, source, query, start, end, lastStart, smartCase, ignoreCase, func(offset, end int64) bool {
+		err := walk(ctx, source, query, start, end, lastStart, func(offset, end int64) bool {
 			if eligible(offset) == wantEligible {
 				found = Result{Offset: offset, Found: true, Wrapped: wrapped}
 				return backward
@@ -86,14 +87,16 @@ func FindFrom(ctx context.Context, source Source, query string, origin, anchor i
 	return scan(anchor, end, false, true)
 }
 
-// Walk streams every (including overlapping) literal match in an absolute byte
-// range. Returning false from visit stops immediately without retaining matches.
-func Walk(ctx context.Context, source Source, query string, start, end int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
-	return walk(ctx, source, query, start, end, end, smartCase, ignoreCase, visit)
+// Walk streams every match in an absolute byte range: overlapping ones for a
+// literal, leftmost non-overlapping ones for a regular expression. start must
+// be a line start for ^ to match correctly. Returning false from visit stops
+// immediately without retaining matches.
+func Walk(ctx context.Context, source Source, query Query, start, end int64, visit func(start, end int64) bool) error {
+	return walk(ctx, source, query, start, end, end, visit)
 }
 
-func walk(ctx context.Context, source Source, query string, start, end, lastStart int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) error {
-	_, _, err := walkChecked(ctx, source, query, start, end, lastStart, 0, smartCase, ignoreCase, visit)
+func walk(ctx context.Context, source Source, query Query, start, end, lastStart int64, visit func(start, end int64) bool) error {
+	_, _, err := walkChecked(ctx, source, query, start, end, lastStart, 0, visit)
 	return err
 }
 
@@ -102,22 +105,26 @@ func walk(ctx context.Context, source Source, query string, start, end, lastStar
 // lastStart = boundary-1 has examined every token that could span it. open
 // reports that decoding reached end before passing lastStart, so matches
 // starting through lastStart may change once more input arrives.
-func walkChecked(ctx context.Context, source Source, query string, start, end, lastStart, boundary int64, smartCase, ignoreCase bool, visit func(start, end int64) bool) (straddled, open bool, err error) {
-	pattern := []rune(query)
-	if len(pattern) == 0 {
+func walkChecked(ctx context.Context, source Source, query Query, start, end, lastStart, boundary int64, visit func(start, end int64) bool) (straddled, open bool, err error) {
+	m, err := query.compile()
+	if err != nil {
+		return false, false, err
+	}
+	end = min(end, source.Len())
+	start = min(max(sourceStart(source), start), end)
+	reader := searchReader{reader: content.NewPlainReader(source, start, end), ctx: ctx, boundary: boundary}
+	if m.re != nil {
+		return walkRegex(&reader, m, start, lastStart, visit)
+	}
+	if len(m.literal) == 0 {
 		return false, false, nil
 	}
-	fold := smartCase || ignoreCase
-	for _, r := range pattern {
-		if smartCase && unicode.IsUpper(r) {
-			fold = false
-		}
-	}
-	if fold {
-		for i, r := range pattern {
-			pattern[i] = foldRune(r)
-		}
-	}
+	return walkLiteral(&reader, m.literal, m.fold, lastStart, visit)
+}
+
+// walkLiteral runs KMP over the decoded text; pattern is already folded.
+func walkLiteral(reader *searchReader, pattern []rune, fold bool, lastStart int64, visit func(start, end int64) bool) (straddled, open bool, err error) {
+	ctx := reader.ctx
 	prefix := make([]int, len(pattern))
 	for i, j := 1, 0; i < len(pattern); i++ {
 		for j > 0 && pattern[i] != pattern[j] {
@@ -128,10 +135,7 @@ func walkChecked(ctx context.Context, source Source, query string, start, end, l
 		}
 		prefix[i] = j
 	}
-	end = min(end, source.Len())
-	start = min(max(sourceStart(source), start), end)
 	offsets := make([]int64, len(pattern))
-	reader := searchReader{reader: content.NewPlainReader(source, start, end), ctx: ctx, boundary: boundary}
 	index := 0
 	matched := 0
 	consume := func(r rune, start, end int64) bool {

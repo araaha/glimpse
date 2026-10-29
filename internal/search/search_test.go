@@ -39,7 +39,7 @@ func TestFind(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc := pager.NewDocumentWithChunkSize(2)
 			doc.Write([]byte(tt.input))
-			got, err := Find(context.Background(), doc, tt.query, tt.origin, tt.backward, tt.smart, false, tt.include)
+			got, err := Find(context.Background(), doc, literal(tt.query, tt.smart, false), tt.origin, tt.backward, tt.include)
 			if got != tt.want || err != nil {
 				t.Fatalf("Find = (%+v, %v), want %+v", got, err, tt.want)
 			}
@@ -50,7 +50,7 @@ func TestFind(t *testing.T) {
 func TestFindLongLineAndBufferBoundary(t *testing.T) {
 	doc := pager.NewDocumentWithChunkSize(7)
 	doc.Write([]byte(strings.Repeat("a", 65535) + "界TARGET" + strings.Repeat("b", 65536)))
-	got, err := Find(context.Background(), doc, "界target", 0, false, true, false, true)
+	got, err := Find(context.Background(), doc, literal("界target", true, false), 0, false, true)
 	if err != nil || !got.Found || got.Offset != 65535 {
 		t.Fatalf("Find = (%+v, %v)", got, err)
 	}
@@ -62,12 +62,12 @@ func (brokenSource) Len() int64                        { return 10 }
 func (brokenSource) ReadAt([]byte, int64) (int, error) { return 0, errors.New("read failed") }
 
 func TestFindErrorsAndCancellation(t *testing.T) {
-	if _, err := Find(context.Background(), brokenSource{}, "x", 0, false, false, false, true); err == nil {
+	if _, err := Find(context.Background(), brokenSource{}, literal("x", false, false), 0, false, true); err == nil {
 		t.Fatal("read error ignored")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := Find(ctx, brokenSource{}, "x", 0, false, false, false, true); !errors.Is(err, context.Canceled) {
+	if _, err := Find(ctx, brokenSource{}, literal("x", false, false), 0, false, true); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled search: %v", err)
 	}
 }
@@ -88,7 +88,7 @@ func TestFindCancellationDuringScan(t *testing.T) {
 	doc.Write([]byte(strings.Repeat("x", 128*1024)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_, err := Find(ctx, cancelingSource{doc, cancel}, "absent", 0, true, false, false, true)
+	_, err := Find(ctx, cancelingSource{doc, cancel}, literal("absent", false, false), 0, true, true)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("scan cancellation = %v", err)
 	}
@@ -106,7 +106,7 @@ func TestIgnoreCase(t *testing.T) {
 		{"Σ", false, 4},
 		{"ABC", true, 9},
 	} {
-		got, err := Find(context.Background(), doc, tt.query, 0, false, tt.smart, true, true)
+		got, err := Find(context.Background(), doc, literal(tt.query, tt.smart, true), 0, false, true)
 		if err != nil || !got.Found || got.Offset != tt.offset {
 			t.Fatalf("query %q, smart %v: result %+v, error %v", tt.query, tt.smart, got, err)
 		}
@@ -117,11 +117,11 @@ func TestSearchSkipsSupportedAndUnsupportedANSI(t *testing.T) {
 	doc := pager.NewDocument()
 	defer doc.Close()
 	doc.Write([]byte("pre\x1b[31mnee\x1b[0mdle\x1b]52;secret\a end"))
-	got, err := Find(context.Background(), doc, "needle", 0, false, false, false, true)
+	got, err := Find(context.Background(), doc, literal("needle", false, false), 0, false, true)
 	if err != nil || !got.Found || got.Offset != 8 {
 		t.Fatalf("styled search = %+v, %v", got, err)
 	}
-	got, err = Find(context.Background(), doc, "secret", 0, false, false, false, true)
+	got, err = Find(context.Background(), doc, literal("secret", false, false), 0, false, true)
 	if err != nil || got.Found {
 		t.Fatalf("control string was searchable: %+v, %v", got, err)
 	}
@@ -132,13 +132,18 @@ func TestSearchNormalizesManOverstrikes(t *testing.T) {
 	defer doc.Close()
 	doc.Write([]byte("w\bwo\bor\brd\bd _\bu\n"))
 	for _, query := range []string{"word", "u"} {
-		got, err := Find(context.Background(), doc, query, 0, false, false, false, true)
+		got, err := Find(context.Background(), doc, literal(query, false, false), 0, false, true)
 		if err != nil || !got.Found {
 			t.Fatalf("query %q: %+v, %v", query, got, err)
 		}
 	}
-	got, err := Find(context.Background(), doc, "_", 0, false, false, false, true)
+	got, err := Find(context.Background(), doc, literal("_", false, false), 0, false, true)
 	if err != nil || got.Found {
 		t.Fatalf("underline marker is not visible text: %+v %v", got, err)
 	}
+}
+
+// literal is a query matched as typed, as with :set nomagic.
+func literal(text string, smart, ignore bool) Query {
+	return Query{Text: text, SmartCase: smart, IgnoreCase: ignore, Literal: true}
 }
