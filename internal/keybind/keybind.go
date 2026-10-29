@@ -35,6 +35,7 @@ const (
 	ScrollRight        Action = "scroll-right"
 	ToggleLineNumbers  Action = "toggle-line-numbers"
 	ToggleHexColors    Action = "toggle-hex-colors"
+	Edit               Action = "edit"
 	Help               Action = "help"
 	Insert             Action = "insert"
 	SearchCancel       Action = "search-cancel"
@@ -98,6 +99,7 @@ func Defaults() []Binding {
 		{ScrollRight, []Key{"<Right>"}},
 		{ToggleLineNumbers, []Key{"#"}},
 		{ToggleHexColors, []Key{"R"}},
+		{Edit, []Key{"v"}},
 		{Help, []Key{"g", "?"}},
 	}
 }
@@ -105,12 +107,18 @@ func Defaults() []Binding {
 // Compile replaces the default sequences for each configured action. A TOML
 // array is one sequence: top = ["g", "g"]. An empty array disables that action.
 // Explicit sequences also replace matching default bindings for other actions.
-func Compile(overrides map[string][]string) (*Matcher, error) {
+// Extra bindings, such as configured run commands, are added last and may not
+// share a sequence with any other binding.
+func Compile(overrides map[string][]string, extra ...Binding) (*Matcher, error) {
 	selected, err := modeOverrides(Defaults(), overrides)
 	if err != nil {
 		return nil, err
 	}
-	return compile(Defaults(), selected)
+	m, err := compile(Defaults(), selected)
+	if err != nil || len(extra) == 0 {
+		return m, err
+	}
+	return NewMatcher(append(slices.Clip(m.Bindings()), extra...))
 }
 
 // CompileSearch builds a separate key map for the search prompt. Unbound
@@ -299,6 +307,7 @@ var Descriptions = map[Action]string{
 	ScrollRight:        "scroll unwrapped lines right",
 	ToggleLineNumbers:  "toggle line numbers",
 	ToggleHexColors:    "toggle coloring #RRGGBB codes",
+	Edit:               "edit the file at $line in $VISUAL or $EDITOR",
 	Help:               "toggle this help",
 	SearchCancel:       "cancel the prompt",
 	Accept:             "run the search or command",

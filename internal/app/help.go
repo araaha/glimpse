@@ -8,9 +8,9 @@ import (
 )
 
 // helpLines lists the effective bindings, so configured keys and disabled
-// actions are shown as they are, followed by the : commands. All sections
-// share one key column.
-func helpLines(view, prompt *keybind.Matcher) []string {
+// actions are shown as they are, then configured run commands and the :
+// commands. All sections share one key column.
+func helpLines(view, prompt *keybind.Matcher, runs map[keybind.Action]RunCommand) []string {
 	type section struct {
 		title string
 		rows  [][2]string
@@ -33,6 +33,19 @@ func helpLines(view, prompt *keybind.Matcher) []string {
 				bound = "(unbound)"
 			}
 			current.rows = append(current.rows, [2]string{bound, keybind.Descriptions[action]})
+		}
+		sections = append(sections, current)
+	}
+	if len(runs) > 0 {
+		current := section{title: "Run commands ($line and $file are set)"}
+		for _, binding := range view.Bindings() {
+			if run, ok := runs[binding.Action]; ok {
+				command := run.Command
+				if run.Background {
+					command += "  (background)"
+				}
+				current.rows = append(current.rows, [2]string{keybind.Format(binding.Keys), command})
+			}
 		}
 		sections = append(sections, current)
 	}

@@ -20,6 +20,14 @@ import (
 	"github.com/gdamore/tcell/v3/vt"
 )
 
+// unsuspendedScreen keeps the mock terminal running while foreground commands
+// run: the vt mock restarts its emulator on Resume without synchronizing with
+// tcell's input goroutine, a race in the mock alone.
+type unsuspendedScreen struct{ tcell.Screen }
+
+func (unsuspendedScreen) Suspend() error { return nil }
+func (unsuspendedScreen) Resume() error  { return nil }
+
 type testViewer struct {
 	screen  tcell.Screen
 	frames  <-chan ui.Frame
@@ -45,10 +53,11 @@ func startReaderViewer(t *testing.T, options Options, reader io.ReadCloser, name
 	if err != nil {
 		t.Fatal(err)
 	}
-	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: vt.Col(width), Y: vt.Row(height)}), tcell.OptNegotiation(false))
+	mock, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: vt.Col(width), Y: vt.Row(height)}), tcell.OptNegotiation(false))
 	if err != nil {
 		t.Fatal(err)
 	}
+	screen := unsuspendedScreen{mock}
 	recorder := &recordingRenderer{ui.NewTerminal(screen), make(chan ui.Frame, 32)}
 	application.Renderer = recorder
 	ctx, cancel := context.WithCancel(context.Background())

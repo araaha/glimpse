@@ -76,7 +76,7 @@ func knownKey(key string) bool {
 	}
 	switch key {
 	case "cmdheight", "chunk-size", "follow", "follow-name", "jump-target",
-		"display.ambiguous-width", "display.wrap", "display.line-numbers",
+		"display.ambiguous-width", "display.wrap", "display.line-numbers", "display.hex-colors", "run",
 		"display.line-number-style.fg", "display.line-number-style.bg",
 		"display.unprintable.char", "display.unprintable.fg", "display.unprintable.bg",
 		"storage.memory-budget", "storage.spool-quota", "storage.metadata-budget",

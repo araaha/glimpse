@@ -12,7 +12,7 @@ func TestHelpListsEffectiveBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Join(helpLines(a.Keys, a.SearchKeys), "\n")
+	text := strings.Join(helpLines(a.Keys, a.SearchKeys, a.runs), "\n")
 	for _, want := range []string{"q  zq  <C-c>", "t  ", "(unbound)", "g?", "<PageDown>  <Space>", "<C-s>", ":set jump-target=N"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help lacks %q:\n%s", want, text)
@@ -52,4 +52,26 @@ func TestRunHelpScreen(t *testing.T) {
 	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.StatusState.Mode == "VIEW" })
 	viewer.press("q")
 	viewer.expectExit(t)
+}
+
+func TestHelpListsRunCommands(t *testing.T) {
+	a, err := New(Options{Run: []RunCommand{
+		{Keys: []string{"s", "h"}, Command: `nvim +$line "$file"`},
+		{Keys: []string{"<C-y>"}, Command: "wl-copy", Background: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Document.Close()
+	// Compare with spacing collapsed: the key column width depends on all keys.
+	var rows []string
+	for _, line := range helpLines(a.Keys, a.SearchKeys, a.runs) {
+		rows = append(rows, strings.Join(strings.Fields(line), " "))
+	}
+	text := strings.Join(rows, "\n")
+	for _, want := range []string{"Run commands", `sh nvim +$line "$file"`, "<C-y> wl-copy (background)", "v edit the file"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("help lacks %q:\n%s", want, text)
+		}
+	}
 }

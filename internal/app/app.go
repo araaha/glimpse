@@ -38,6 +38,7 @@ type Options struct {
 	UnprintableChar   string
 	UnprintableStyle  ui.Colors
 	JumpTarget        JumpTarget
+	Run               []RunCommand
 }
 
 // App coordinates asynchronous ingestion with viewport-sized rendering.
@@ -66,6 +67,7 @@ type App struct {
 	unprintableChar               string
 	FilenameStyle                 string // statusline filename style: full, short, or tail
 	JumpTarget                    JumpTarget
+	runs                          map[keybind.Action]RunCommand
 }
 
 // New creates document storage and view state without initializing a terminal.
@@ -98,7 +100,11 @@ func New(options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys, err := keybind.Compile(options.Keybinds)
+	extra, runs, err := runBindings(options.Run)
+	if err != nil {
+		return nil, fmt.Errorf("run: %w", err)
+	}
+	keys, err := keybind.Compile(options.Keybinds, extra...)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +165,7 @@ func New(options Options) (*App, error) {
 		Statusline:        statusline,
 		SearchHighlight:   highlight,
 		JumpTarget:        options.JumpTarget,
+		runs:              runs,
 		LineNumberStyle:   numbers,
 		UnprintableStyle:  unprintable,
 		unprintableChar:   options.UnprintableChar,

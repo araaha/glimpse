@@ -265,7 +265,70 @@ func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
 		}
 		options.Keybinds = bindings
 	}
+	if options.Run, err = readRun(config.Get("run")); err != nil {
+		return app.Options{}, err
+	}
 	return options, nil
+}
+
+// readRun reads [[run]] tables: keys (one sequence), command, and optional
+// background.
+func readRun(raw any) ([]app.RunCommand, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var tables []map[string]any
+	switch raw := raw.(type) {
+	case []map[string]any:
+		tables = raw
+	case []any:
+		for _, item := range raw {
+			table, ok := item.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("run must be an array of tables ([[run]])")
+			}
+			tables = append(tables, table)
+		}
+	default:
+		return nil, fmt.Errorf("run must be an array of tables ([[run]])")
+	}
+	runs := make([]app.RunCommand, 0, len(tables))
+	for i, table := range tables {
+		name := fmt.Sprintf("run-%d", i+1)
+		var run app.RunCommand
+		for key, value := range table {
+			switch key {
+			case "keys":
+				keys, ok := value.([]any)
+				if !ok {
+					return nil, fmt.Errorf("%s: keys must be an array of keys", name)
+				}
+				for _, rawKey := range keys {
+					key, ok := rawKey.(string)
+					if !ok {
+						return nil, fmt.Errorf("%s: keys contains a non-string key", name)
+					}
+					run.Keys = append(run.Keys, key)
+				}
+			case "command":
+				command, ok := value.(string)
+				if !ok {
+					return nil, fmt.Errorf("%s: command must be a string", name)
+				}
+				run.Command = command
+			case "background":
+				background, ok := value.(bool)
+				if !ok {
+					return nil, fmt.Errorf("%s: background must be true or false", name)
+				}
+				run.Background = background
+			default:
+				return nil, fmt.Errorf("%s: unknown option %q", name, key)
+			}
+		}
+		runs = append(runs, run)
+	}
+	return runs, nil
 }
 
 func openInput(stdin io.Reader, args []string) (io.ReadCloser, string, error) {

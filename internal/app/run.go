@@ -351,6 +351,14 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		return nil
 	}
 	var applyPrompt func([]keybind.Command) (bool, error)
+	// Background run commands report failures here; glimpse never waits on them.
+	runFailures := make(chan string, 8)
+	// commandLine is $line for run commands: the file line at the jump-target
+	// row, so a search or :N jump sets it to the line it lands on.
+	commandLine := func() int {
+		row := min(view.top+a.JumpTarget.Row(layout.Body.Height), text.RowCount()-1)
+		return max(1, text.LogicalLineAt(text.Offset(max(0, row))))
+	}
 	apply := func(actions []keybind.Command) (bool, error) {
 		// The help screen takes over navigation; closing it drops the rest of
 		// the batch rather than acting on the document behind it.
@@ -430,8 +438,24 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			if action == keybind.Quit {
 				return true, nil
 			}
+			if run, ok := a.runs[action]; ok || action == keybind.Edit {
+				file := commandFile(name)
+				if !ok {
+					run = RunCommand{Command: editCommand, label: "edit"}
+				}
+				search.message = ""
+				if !ok && file == "" {
+					search.message = "No file to edit"
+				} else if cmd := shellCommand(run.Command, commandLine(), file); run.Background {
+					runBackground(cmd, run.label, runFailures)
+				} else if err := runForeground(screen, cmd); err != nil {
+					search.message = commandFailure(run.label, err)
+				}
+				dirty = true
+				continue
+			}
 			if action == keybind.Help {
-				help, helpView = helpLines(a.Keys, a.SearchKeys), viewState{}
+				help, helpView = helpLines(a.Keys, a.SearchKeys, a.runs), viewState{}
 				dirty = true
 				continue
 			}
@@ -673,6 +697,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			} else if response.err != nil || !response.result.Found {
 				search.repeats = nil
 			}
+			dirty = true
+		case failure := <-runFailures:
+			search.message = failure
 			dirty = true
 		case response := <-counts.results:
 			if counts.accept(response) {

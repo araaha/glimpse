@@ -220,6 +220,20 @@ Toggle coloring
 .BI # RRGGBB
 codes.
 .TP
+.B v
+Edit the file in
+.B $VISUAL
+or
+.B $EDITOR
+(default
+.BR vi )
+at
+.BR $line ;
+see
+.B [[run]]
+under
+.BR CONFIGURATION .
+.TP
 .B =
 Toggle the statusline (cmdheight \-1 and \-2).
 .TP
@@ -393,7 +407,7 @@ View actions:
 quit, cancel, top, bottom, up, down, page\-up, page\-down, half\-page\-up,
 half\-page\-down, follow, toggle\-status, search\-forward, search\-backward,
 search\-next, search\-previous, command, toggle\-wrap, scroll\-left,
-scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, help.
+scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, edit, help.
 Prompt actions:
 search\-accept, search\-cancel, search\-left, search\-right, search\-start,
 search\-end, search\-word\-left, search\-word\-right, search\-backspace,
@@ -402,6 +416,48 @@ search\-clear\-before, search\-clear\-after, search\-history\-previous,
 search\-history\-next, search\-complete, search\-complete\-previous.
 Keys may be written as
 .BR <S\-Tab> .
+.TP
+.B [[run]]
+binds
+.B keys
+(one sequence, as in
+.BR [keybinds] )
+to a shell
+.BR command ,
+run with
+.BR "sh \-c" .
+The command takes over the terminal until it exits, unless
+.B background = true
+runs it detached with no input or output.
+Two variables are set in its environment:
+.B $line
+is the file line at the jump-target row (see
+.BR \-\-jump\-target ),
+so after a search or
+.BI : N
+it is the line jumped to;
+.B $file
+is the file's absolute path, empty for standard input.
+They are never pasted into the command text, so quote
+.B \(dq$file\(dq
+as in any shell script.
+A failing command's exit status is shown on the message row.
+Each table becomes the action
+.BR run\- \fIN\fP
+in config order; its keys may not be bound to anything else.
+For example:
+.RS
+.nf
+[[run]]
+keys = ["s", "h"]
+command = \(aqnvim +$line "$file"\(aq
+
+[[run]]
+keys = ["s", "y"]
+command = \(aqprintf %s "$line" | wl\-copy\(aq
+background = true
+.fi
+.RE
 .PP
 Colors are ANSI palette names such as
 .BR red " or " bright\-blue ,
