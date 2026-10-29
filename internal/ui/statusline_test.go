@@ -94,8 +94,14 @@ func TestStatuslinePendingCountsAndNarrowUnicode(t *testing.T) {
 	state := testStatusState()
 	state.SearchCurrentKnown, state.SearchTotalKnown, state.TotalLinesKnown = false, false, false
 	state.Filename = "👩🏽‍💻-very-long-界-é-\x1b[31mfilename"
-	if got := model.Format(state, 100, false).Text(); !strings.Contains(got, "…/…") || !strings.Contains(got, "842/…") {
+	// Unknown totals are left out rather than shown as placeholders.
+	if got := model.Format(state, 100, false).Text(); !strings.Contains(got, " … ") || !strings.HasSuffix(got, " 842 ") || strings.Contains(got, "/") {
 		t.Fatalf("pending counts = %q", got)
+	}
+	pending := state
+	pending.SearchCurrentKnown = true
+	if got := model.Format(pending, 100, false).Text(); !strings.Contains(got, " 3 ") || strings.Contains(got, "/") {
+		t.Fatalf("known rank, pending total = %q", got)
 	}
 	for _, wide := range []bool{false, true} {
 		for width := 0; width <= 100; width++ {

@@ -272,21 +272,22 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 			caps[StatusMode] = capStyle
 		}
 	}
+	// A total is shown only once known, never as a placeholder, so a growing
+	// stream shows just its position.
 	if state.HasSearch {
-		current, total := "…", "…"
+		current := "…"
 		if state.SearchCurrentKnown {
 			current = fmt.Sprint(state.SearchCurrent)
 		}
+		values[StatusSearchResults] = current
 		if state.SearchTotalKnown {
-			total = fmt.Sprint(state.SearchTotal)
+			values[StatusSearchResults] += "/" + fmt.Sprint(state.SearchTotal)
 		}
-		values[StatusSearchResults] = current + "/" + total
 	}
-	total := "…"
+	values[StatusLineNumbers] = fmt.Sprint(state.TopLine)
 	if state.TotalLinesKnown {
-		total = fmt.Sprint(state.TotalLines)
+		values[StatusLineNumbers] += "/" + fmt.Sprint(state.TotalLines)
 	}
-	values[StatusLineNumbers] = fmt.Sprintf("%d/%s", state.TopLine, total)
 	// Padding and caps are decoration, dropped together on narrow terminals.
 	decorate := true
 	build := func(names []string, right bool) []StatusSpan {
