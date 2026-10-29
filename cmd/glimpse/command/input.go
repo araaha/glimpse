@@ -20,11 +20,17 @@ func pollableInput(file *os.File) io.ReadCloser {
 	if err != nil {
 		return file
 	}
-	var fd uintptr
-	if conn.Control(func(descriptor uintptr) { fd = descriptor }) != nil || syscall.SetNonblock(int(fd), true) != nil {
+	// Duplicate the descriptor so that each file owns and closes its own:
+	// sharing one would let a later close of the original hit whatever file
+	// reused the number.
+	fd := -1
+	if conn.Control(func(descriptor uintptr) { fd, err = syscall.Dup(int(descriptor)) }) != nil || err != nil {
 		return file
 	}
-	// NewFile registers a non-blocking descriptor with the poller. It takes
-	// over the descriptor, which the original file must no longer use.
-	return os.NewFile(fd, file.Name())
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		syscall.Close(fd)
+		return file
+	}
+	// NewFile registers a non-blocking descriptor with the poller.
+	return os.NewFile(uintptr(fd), file.Name())
 }
