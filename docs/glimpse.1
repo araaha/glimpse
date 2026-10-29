@@ -352,7 +352,23 @@ section lists
 .BR separator\-open ,
 .BR separator\-close ,
 .BR fg ,
-.BR bg ;
+.BR bg ,
+.B filename\-style
+.RB ( full ,
+the default, as in
+.IR ~/.config/nvim/init.lua ;
+.BR short ,
+as in
+.IR ~/.c/n/init.lua ;
+or
+.BR tail ,
+as in
+.IR init.lua ).
+Paths are made absolute and show
+.B $HOME
+as
+.BR ~ ;
+a path too long for the statusline is clipped from the left.
 .B [statusline.styles]
 per-section
 .BR "{ fg, bg }" .

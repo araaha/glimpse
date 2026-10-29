@@ -15,7 +15,7 @@ func TestRunStatuslineModesCountsAndLogicalLines(t *testing.T) {
 	viewer := startTestViewer(t, Options{}, "header\nhit one\ngap\nhit two\nhit three\nend", 60, 4)
 	viewer.press("=")
 	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.StatusState.TotalLinesKnown })
-	if frame.StatusState.Mode != "VIEW" || frame.StatusState.Filename != "test" || frame.StatusState.TopLine != 1 || frame.StatusState.TotalLines != 6 {
+	if frame.StatusState.Mode != "VIEW" || frame.StatusState.Filename != ui.FormatFilename("test", "") || frame.StatusState.TopLine != 1 || frame.StatusState.TotalLines != 6 {
 		t.Fatalf("initial status = %+v", frame.StatusState)
 	}
 	viewer.press("/")

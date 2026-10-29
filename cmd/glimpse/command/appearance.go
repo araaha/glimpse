@@ -14,7 +14,7 @@ import (
 func readAppearance(config *viper.Viper, options *app.Options) error {
 	for key := range config.GetStringMap("statusline") {
 		switch key {
-		case "left", "right", "separator-open", "separator-close", "fg", "bg", "styles":
+		case "left", "right", "separator-open", "separator-close", "fg", "bg", "styles", "filename-style":
 		default:
 			return fmt.Errorf("unknown statusline option %q", key)
 		}
@@ -108,6 +108,13 @@ func readAppearance(config *viper.Viper, options *app.Options) error {
 	options.Statusline.BG, err = readString("statusline.bg")
 	if err != nil {
 		return err
+	}
+	options.Statusline.FilenameStyle, err = readString("statusline.filename-style")
+	if err != nil {
+		return err
+	}
+	if !ui.ValidFilenameStyle(options.Statusline.FilenameStyle) {
+		return fmt.Errorf("statusline.filename-style must be tail, short, or full")
 	}
 	options.Statusline.Styles = make(map[string]ui.Colors)
 	for name := range config.GetStringMap("statusline.styles") {

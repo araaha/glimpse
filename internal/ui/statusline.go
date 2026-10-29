@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -26,6 +27,7 @@ type StatuslineConfig struct {
 	SeparatorOpen, SeparatorClose *string  // nil inherits the default; an empty string disables.
 	FG, BG                        string
 	Styles                        map[string]Colors
+	FilenameStyle                 string // full, short, or tail; empty is full
 }
 
 type Statusline struct {
@@ -43,6 +45,7 @@ type StatusState struct {
 	SearchCurrent, SearchTotal                      int64
 	TopLine, TotalLines                             int
 	TotalLinesKnown                                 bool
+	FilenamePath                                    bool // Filename is a path, not a label
 }
 
 type StatusSpan struct {
@@ -62,6 +65,9 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 	base, err := (Colors{FG: config.FG, BG: config.BG}).Style(base)
 	if err != nil {
 		return nil, fmt.Errorf("statusline: %w", err)
+	}
+	if !ValidFilenameStyle(config.FilenameStyle) {
+		return nil, fmt.Errorf("statusline filename-style must be tail, short, or full")
 	}
 	// Caps are opt-in (e.g. U+E0B0 with a Nerd/Powerline font); by default
 	// sections are separated by their padding only.
@@ -169,6 +175,15 @@ func statusWidth(text string, wide bool) int {
 }
 
 func clipStatus(text string, width int, wide bool) string {
+	return clipStatusSide(text, width, wide, false)
+}
+
+// clipStatusLeft keeps the end of text, so a clipped path keeps its basename.
+func clipStatusLeft(text string, width int, wide bool) string {
+	return clipStatusSide(text, width, wide, true)
+}
+
+func clipStatusSide(text string, width int, wide, left bool) string {
 	if width <= 0 {
 		return ""
 	}
@@ -180,19 +195,29 @@ func clipStatus(text string, width int, wide bool) string {
 	if budget < 0 {
 		return ""
 	}
-	var out strings.Builder
-	used := 0
+	var parts []string
 	iterator := graphemes.FromString(text)
 	for iterator.Next() {
-		part := iterator.Value()
+		parts = append(parts, iterator.Value())
+	}
+	if left {
+		slices.Reverse(parts)
+	}
+	kept, used := 0, 0
+	for _, part := range parts {
 		w := statusWidth(part, wide)
 		if used+w > budget {
 			break
 		}
-		out.WriteString(part)
+		kept++
 		used += w
 	}
-	return out.String() + ellipsis
+	parts = parts[:kept]
+	if left {
+		slices.Reverse(parts)
+		return ellipsis + strings.Join(parts, "")
+	}
+	return strings.Join(parts, "") + ellipsis
 }
 
 func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar {
@@ -276,7 +301,11 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 		if overflow := groupWidth() - width; overflow > 0 {
 			// Filename is always the first field sacrificed to a narrow terminal,
 			// regardless of which side the user placed it on.
-			clipped := clipStatus(filename, statusWidth(filename, wide)-overflow, wide)
+			clip := clipStatus
+			if state.FilenamePath {
+				clip = clipStatusLeft
+			}
+			clipped := clip(filename, statusWidth(filename, wide)-overflow, wide)
 			if clipped == "…" {
 				clipped = "" // An ellipsis alone says nothing about the name.
 			}

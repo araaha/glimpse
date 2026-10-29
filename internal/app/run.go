@@ -69,9 +69,9 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 
 	// display names the input in the statusline and messages; name stays the
 	// path that the file watcher reopens.
-	display := name
-	if a.Label != "" {
-		display = a.Label
+	display, displayPath := a.Label, false
+	if display == "" && name != "" {
+		display, displayPath = ui.FormatFilename(name, a.FilenameStyle), true
 	}
 	tick := time.NewTicker(time.Second / 60)
 	defer tick.Stop()
@@ -276,7 +276,7 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len(), generation: loadedGeneration}
 		state := ui.StatusState{
-			Mode: "VIEW", Filename: display, HasSearch: search.query != "",
+			Mode: "VIEW", Filename: display, FilenamePath: displayPath, HasSearch: search.query != "",
 			TopLine: text.LogicalLineAt(top), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
 		}
 		state.SearchCurrent, state.SearchTotal, state.SearchCurrentKnown, state.SearchTotalKnown = counts.values(key, target, search.matched)

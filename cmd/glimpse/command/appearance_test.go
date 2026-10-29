@@ -74,6 +74,18 @@ func TestAppearanceConfiguration(t *testing.T) {
 				t.Fatal("environment lists ignored")
 			}
 		}},
+		{name: "filename style", config: "[statusline]\nfilename-style = 'short'", check: func(t *testing.T, a *app.App) {
+			if a.FilenameStyle != ui.FilenameShort {
+				t.Fatalf("filename style = %q", a.FilenameStyle)
+			}
+		}},
+		{name: "environment filename style", config: "[statusline]\nfilename-style = 'short'", env: map[string]string{"GLIMPSE_STATUSLINE_FILENAME_STYLE": "tail"}, check: func(t *testing.T, a *app.App) {
+			if a.FilenameStyle != ui.FilenameTail {
+				t.Fatalf("filename style = %q", a.FilenameStyle)
+			}
+		}},
+		{name: "unknown filename style", config: "[statusline]\nfilename-style = 'long'", wantErr: "filename-style must be tail, short, or full"},
+		{name: "filename style type", config: "[statusline]\nfilename-style = 1", wantErr: "statusline.filename-style must be a string"},
 		{name: "unknown section", config: "[statusline]\nleft = ['typo']", wantErr: "unknown statusline section"},
 		{name: "duplicate section", config: "[statusline]\nleft = ['mode']\nright = ['MODE']", wantErr: "duplicate statusline section"},
 		{name: "scalar section list", config: "[statusline]\nleft = 'mode'", wantErr: "must be an array"},

@@ -64,6 +64,7 @@ type App struct {
 	LineNumberStyle               tcell.Style
 	UnprintableStyle              tcell.Style
 	unprintableChar               string
+	FilenameStyle                 string // statusline filename style: full, short, or tail
 	JumpTarget                    JumpTarget
 }
 
@@ -161,6 +162,7 @@ func New(options Options) (*App, error) {
 		LineNumberStyle:   numbers,
 		UnprintableStyle:  unprintable,
 		unprintableChar:   options.UnprintableChar,
+		FilenameStyle:     options.Statusline.FilenameStyle,
 	}, nil
 }
 
