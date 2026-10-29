@@ -135,6 +135,34 @@ func NewReader(source io.ReaderAt, start, end int64, style Style, complete bool,
 	return r
 }
 
+// textStops are the bytes that can begin a newline or a control sequence:
+// '\n', ESC, and 0xC2, the UTF-8 lead byte of the C1 introducers. Other bytes
+// decode to runes that can neither be nor hide a newline.
+var textStops = [256]bool{'\n': true, 0x1b: true, 0xc2: true}
+
+// SkipText discards input up to the next byte in textStops, or to the end,
+// without decoding it. Next then decodes from that byte exactly as it would
+// have without the skip, because no UTF-8 sequence spans one of those bytes.
+func (r *Reader) SkipText() error {
+	for {
+		if r.reader.Buffered() == 0 {
+			if _, err := r.reader.Peek(1); err != nil {
+				return err
+			}
+		}
+		data, _ := r.reader.Peek(r.reader.Buffered())
+		n := 0
+		for n < len(data) && !textStops[data[n]] {
+			n++
+		}
+		r.reader.Discard(n)
+		r.offset += int64(n)
+		if n < len(data) {
+			return nil
+		}
+	}
+}
+
 func (r *Reader) Next() (Token, error) {
 	start := r.offset
 	peek, err := r.reader.Peek(1)

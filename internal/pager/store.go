@@ -251,11 +251,36 @@ func (s *Store) ReadAt(p []byte, off int64) (int, error) {
 		return 0, nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
 		return 0, os.ErrClosed
 	}
-	return s.readAt(p, off)
+	if s.external == nil || off < s.base || off >= s.length {
+		defer s.mu.Unlock()
+		return s.readAt(p, off)
+	}
+	// Read the file without holding the lock, so that parallel scans don't
+	// take turns in the system call. A reload swaps in another file under a
+	// new generation; readers of the old one may then fail, but the results
+	// of an old generation are discarded.
+	file, position, length := s.external, s.externalOffset+off, s.length
+	s.mu.Unlock()
+	return readExternal(file, p, position, int(min(int64(len(p)), length-off)))
+}
+
+// readExternal reads want bytes of a file-backed snapshot into p.
+func readExternal(file io.ReaderAt, p []byte, position int64, want int) (int, error) {
+	n, err := file.ReadAt(p[:want], position)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return n, err
+	}
+	if n < want {
+		return n, ErrTruncated
+	}
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
 }
 
 func (s *Store) readAt(p []byte, off int64) (int, error) {
@@ -268,14 +293,7 @@ func (s *Store) readAt(p []byte, off int64) (int, error) {
 	want := int(min(int64(len(p)), s.length-off))
 	n := 0
 	if s.external != nil {
-		var err error
-		n, err = s.external.ReadAt(p[:want], s.externalOffset+off)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return n, err
-		}
-		if n < want {
-			return n, ErrTruncated
-		}
+		return readExternal(s.external, p, s.externalOffset+off, want)
 	} else if s.spool != nil {
 		var err error
 		n, err = s.spool.ReadAt(p[:want], off)

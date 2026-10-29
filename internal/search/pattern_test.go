@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"glimpse/internal/content"
 	"math/rand"
 	"regexp"
 	"strings"
@@ -179,6 +180,46 @@ func TestRegexChunks(t *testing.T) {
 			}
 			if err != nil || got != wantResult {
 				t.Fatalf("size %d backward %v: %+v, %v; want %+v", size, backward, got, err, wantResult)
+			}
+		}
+	}
+}
+
+// TestNewlinesMatchDecoder checks the newline fast path against decoding every
+// token, including newlines hidden in or ending malformed escapes.
+func TestNewlinesMatchDecoder(t *testing.T) {
+	for _, input := range []string{
+		"", "a", "a\n", "a\nb\n\n",
+		"a\x1b]0;title\nmore\x07\nb\n",
+		"x\x1b\ny\n",
+		"\x1b[1\n2m\n",
+		"\xc2\x9d0;t\n\xc2\x9c\n",
+		"\x1b(\nB\n",
+		"©\n界\n\xc2\n\xe2\n",
+		"a\b\n_\b\nb\n",
+		"\x1b[31mred\x1b[m\n\x1b[1mbold\x1b[m\n",
+		"ok\n\x1b]unterminated\n\n",
+	} {
+		source := benchmarkSource{strings.NewReader(input)}
+		var want []string
+		reader := content.NewPlainReader(source, 0, source.Len())
+		for {
+			token, err := reader.Next()
+			if err != nil {
+				break
+			}
+			if !token.Hidden && token.Raw == '\n' {
+				want = append(want, fmt.Sprintf("%d-%d", token.Start, token.End))
+			}
+		}
+		got := regexMatches(t, input, Query{Text: "\n", Literal: true})
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("%q: newlines %v, want %v", input, got, want)
+		}
+		for _, size := range []int64{1, 3} {
+			chunks, err := UpdateChunks(context.Background(), source, Chunks{}, 0, source.Len(), Options{Query: Query{Text: "\n", Literal: true}, ChunkSize: size, Workers: 2})
+			if err != nil || chunks.Total() != int64(len(want)) {
+				t.Errorf("%q size %d: total %d, %v; want %d", input, size, chunks.Total(), err, len(want))
 			}
 		}
 	}

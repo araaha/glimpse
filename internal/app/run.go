@@ -88,6 +88,8 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 	defer search.close()
 	counts := newStatusCounts()
 	defer counts.close()
+	lineTotals := newLineCounts()
+	defer lineTotals.close()
 	view := viewState{follow: a.follow}
 	reading, dirty := true, true
 	var previousLength int64 = -1
@@ -183,6 +185,10 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		dirty = true
 		return nil
 	}
+	// lineKey names the current snapshot for the background line count.
+	lineKey := func() countKey {
+		return countKey{base: a.Document.Start(), end: a.Document.Len(), generation: loadedGeneration}
+	}
 	updateText := func() error {
 		if err := reload(); err != nil {
 			return err
@@ -204,7 +210,11 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			dirty = true
 		}
 		if a.LineNumbers {
-			gutterDigits = max(gutterDigits, len(strconv.Itoa(text.LineCount())))
+			lines := int64(text.LineCount())
+			if total, ok := lineTotals.total(lineKey()); ok {
+				lines = total // Size the gutter once instead of restarting the index as it grows.
+			}
+			gutterDigits = max(gutterDigits, len(strconv.FormatInt(lines, 10)))
 		} else {
 			gutterDigits = 0
 		}
@@ -290,6 +300,13 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		state := ui.StatusState{
 			Mode: ui.ModeView, Filename: display, FilenamePath: displayPath, HasSearch: search.query != "",
 			TopLine: text.LogicalLineAt(top), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
+		}
+		if !reading && indexing {
+			// The display index is still decoding; a newline count finishes far sooner.
+			lineTotals.request(ctx, a.Document, lineKey())
+			if total, ok := lineTotals.total(lineKey()); ok {
+				state.TotalLines, state.TotalLinesKnown = int(total), true
+			}
 		}
 		state.SearchCurrent, state.SearchTotal, state.SearchCurrentKnown, state.SearchTotalKnown = counts.values(key, target, search.matched)
 		switch {
@@ -731,6 +748,10 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 			dirty = true
 		case response := <-counts.results:
 			if counts.accept(response) {
+				dirty = true
+			}
+		case result := <-lineTotals.results:
+			if lineTotals.accept(result) {
 				dirty = true
 			}
 		case event, ok := <-screen.EventQ():

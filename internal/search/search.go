@@ -119,7 +119,42 @@ func walkChecked(ctx context.Context, source Source, query Query, start, end, la
 	if len(m.literal) == 0 {
 		return false, false, nil
 	}
+	if len(m.literal) == 1 && m.literal[0] == '\n' {
+		return walkNewlines(&reader, lastStart, visit)
+	}
 	return walkLiteral(&reader, m.literal, m.fold, lastStart, visit)
+}
+
+// walkNewlines visits decoded newlines, decoding only the bytes that can be or
+// hide one. Overstrike normalization never merges a newline, so the plain
+// decoder suffices. It is how line totals keep pace with the input.
+func walkNewlines(reader *searchReader, lastStart int64, visit func(start, end int64) bool) (straddled, open bool, err error) {
+	for steps := 0; ; steps++ {
+		if steps%256 == 0 {
+			if err := reader.ctx.Err(); err != nil {
+				return false, false, err
+			}
+		}
+		err := reader.reader.SkipText()
+		if err == nil {
+			var token content.Token
+			token, err = reader.reader.Next()
+			if err == nil {
+				reader.check(token.Start, token.End)
+				if token.Start > lastStart {
+					return reader.straddled, false, nil
+				}
+				if !token.Hidden && token.Raw == '\n' && !visit(token.Start, token.End) {
+					return reader.straddled, false, nil
+				}
+				continue
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return reader.straddled, true, nil
+		}
+		return false, false, err
+	}
 }
 
 // walkLiteral runs KMP over the decoded text; pattern is already folded.
