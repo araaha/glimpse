@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -22,12 +23,24 @@ const (
 // right-side section and Close follows each left-side section. A cap takes its
 // section's background as foreground over the bar, so the block appears to end
 // in that glyph. Sections without their own background get no caps.
+// Modes shown by the mode section. Each can override the section's colors.
+const (
+	ModeView   = "VIEW"
+	ModeSearch = "SEARCH"
+	ModeFollow = "FOLLOW"
+	ModeHelp   = "HELP"
+)
+
+var Modes = []string{ModeView, ModeSearch, ModeFollow, ModeHelp}
+
 type StatuslineConfig struct {
 	Left, Right                   []string // nil inherits defaults; an empty array disables a side.
 	SeparatorOpen, SeparatorClose *string  // nil inherits the default; an empty string disables.
 	FG, BG                        string
 	Styles                        map[string]Colors
 	FilenameStyle                 string // full, short, or tail; empty is full
+	// ModeStyles override the mode section's colors per mode (view, search, ...).
+	ModeStyles map[string]Colors
 }
 
 type Statusline struct {
@@ -36,6 +49,8 @@ type Statusline struct {
 	base        tcell.Style
 	styles      map[string]tcell.Style
 	caps        map[string]tcell.Style // Only sections with their own background.
+	modeStyles  map[string]tcell.Style // By mode; unset modes use the mode section's.
+	modeCaps    map[string]tcell.Style
 }
 
 // StatusState is immutable frame data, never a reference to a mutable index.
@@ -71,7 +86,8 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 	}
 	// Caps are opt-in (e.g. U+E0B0 with a Nerd/Powerline font); by default
 	// sections are separated by their padding only.
-	s := &Statusline{base: base, styles: make(map[string]tcell.Style), caps: make(map[string]tcell.Style)}
+	s := &Statusline{base: base, styles: make(map[string]tcell.Style), caps: make(map[string]tcell.Style),
+		modeStyles: make(map[string]tcell.Style), modeCaps: make(map[string]tcell.Style)}
 	defaults := map[string]Colors{
 		StatusMode:          {FG: "black", BG: "blue"},
 		StatusFilename:      {FG: "blue"},
@@ -97,6 +113,20 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 			return nil, fmt.Errorf("statusline.styles.%s: %w", name, err)
 		}
 		s.styles[section] = style
+	}
+	for name, colors := range config.ModeStyles {
+		mode := strings.ToUpper(name)
+		if !slices.Contains(Modes, mode) {
+			return nil, fmt.Errorf("unknown statusline mode %q", name)
+		}
+		if _, ok := s.modeStyles[mode]; ok {
+			return nil, fmt.Errorf("duplicate statusline mode style %q", name)
+		}
+		style, err := colors.Style(s.styles[StatusMode])
+		if err != nil {
+			return nil, fmt.Errorf("statusline.styles.mode.%s: %w", name, err)
+		}
+		s.modeStyles[mode] = style
 	}
 	left, right := config.Left, config.Right
 	if left == nil {
@@ -143,6 +173,11 @@ func NewStatusline(config StatuslineConfig) (*Statusline, error) {
 	for name, style := range s.styles {
 		if bg := style.GetBackground(); bg != base.GetBackground() {
 			s.caps[name] = base.Foreground(bg)
+		}
+	}
+	for mode, style := range s.modeStyles {
+		if bg := style.GetBackground(); bg != base.GetBackground() {
+			s.modeCaps[mode] = base.Foreground(bg)
 		}
 	}
 	return s, nil
@@ -225,7 +260,17 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 	bar := &StatusBar{Width: width, Style: s.base}
 	values := map[string]string{StatusMode: safeStatusText(state.Mode), StatusFilename: safeStatusText(state.Filename)}
 	if values[StatusMode] == "" {
-		values[StatusMode] = "VIEW"
+		values[StatusMode] = ModeView
+	}
+	// The mode section takes the current mode's colors, caps included.
+	styles, caps := s.styles, s.caps
+	if style, ok := s.modeStyles[values[StatusMode]]; ok {
+		styles, caps = maps.Clone(s.styles), maps.Clone(s.caps)
+		styles[StatusMode] = style
+		delete(caps, StatusMode)
+		if capStyle, ok := s.modeCaps[values[StatusMode]]; ok {
+			caps[StatusMode] = capStyle
+		}
 	}
 	if state.HasSearch {
 		current, total := "…", "…"
@@ -264,15 +309,15 @@ func (s *Statusline) Format(state StatusState, width int, wide bool) *StatusBar 
 				if len(spans) > 0 {
 					add(" ", "", s.base)
 				}
-				add(value, name, s.styles[name])
+				add(value, name, styles[name])
 				continue
 			}
-			capStyle, capped := s.caps[name]
+			capStyle, capped := caps[name]
 			if right && capped {
 				add(s.open, "", capStyle)
 			}
 			// Pad inside the span so the section background frames its text.
-			add(" "+value+" ", name, s.styles[name])
+			add(" "+value+" ", name, styles[name])
 			if !right && capped {
 				add(s.close, "", capStyle)
 			}

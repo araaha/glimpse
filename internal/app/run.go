@@ -276,17 +276,17 @@ func (a *App) run(ctx context.Context, input io.ReadCloser, name string, screen 
 		}
 		key := countKey{query: search.query, smart: a.SmartCase, ignore: a.IgnoreCase, base: discarded, end: a.Document.Len(), generation: loadedGeneration}
 		state := ui.StatusState{
-			Mode: "VIEW", Filename: display, FilenamePath: displayPath, HasSearch: search.query != "",
+			Mode: ui.ModeView, Filename: display, FilenamePath: displayPath, HasSearch: search.query != "",
 			TopLine: text.LogicalLineAt(top), TotalLines: text.LineCount(), TotalLinesKnown: !reading && !indexing,
 		}
 		state.SearchCurrent, state.SearchTotal, state.SearchCurrentKnown, state.SearchTotalKnown = counts.values(key, target, search.matched)
 		switch {
 		case help != nil:
-			state.Mode = "HELP"
+			state.Mode = ui.ModeHelp
 		case search.busy || search.prompt != nil && !search.prompt.command || pendingSearch && hasPendingOffset:
-			state.Mode = "SEARCH"
+			state.Mode = ui.ModeSearch
 		case view.follow:
-			state.Mode = "FOLLOW"
+			state.Mode = ui.ModeFollow
 		}
 		bar := a.Statusline.Format(state, layout.Body.Width, a.wideAmbiguous)
 		counts.visible = layout.StatusRow >= 0 && bar.Has(ui.StatusSearchResults)

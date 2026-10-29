@@ -86,6 +86,20 @@ func TestAppearanceConfiguration(t *testing.T) {
 		}},
 		{name: "unknown filename style", config: "[statusline]\nfilename-style = 'long'", wantErr: "filename-style must be tail, short, or full"},
 		{name: "filename style type", config: "[statusline]\nfilename-style = 1", wantErr: "statusline.filename-style must be a string"},
+		{name: "mode styles", config: "[statusline.styles.mode]\nbg = '#112233'\nsearch = { bg = '#445566' }\n[statusline.styles.mode.follow]\nfg = '#778899'\n", env: map[string]string{"GLIMPSE_STATUSLINE_STYLES_MODE_HELP_BG": "#aabbcc"}, check: func(t *testing.T, a *app.App) {
+			background := func(mode string) color.Color {
+				return a.Statusline.Format(ui.StatusState{Mode: mode}, 40, false).Spans[0].Style.GetBackground()
+			}
+			if background(ui.ModeView) != color.NewHexColor(0x112233) || background(ui.ModeSearch) != color.NewHexColor(0x445566) || background(ui.ModeHelp) != color.NewHexColor(0xaabbcc) {
+				t.Fatal("mode backgrounds lost")
+			}
+			follow := a.Statusline.Format(ui.StatusState{Mode: ui.ModeFollow}, 40, false).Spans[0].Style
+			if follow.GetForeground() != color.NewHexColor(0x778899) || follow.GetBackground() != color.NewHexColor(0x112233) {
+				t.Fatal("follow style does not inherit the mode section")
+			}
+		}},
+		{name: "unknown mode", config: "[statusline.styles.mode]\ninsert = { bg = 'red' }", wantErr: "unknown color option statusline.styles.mode.insert"},
+		{name: "mode on another section", config: "[statusline.styles.filename]\nsearch = { bg = 'red' }", wantErr: "unknown color option statusline.styles.filename.search"},
 		{name: "unknown section", config: "[statusline]\nleft = ['typo']", wantErr: "unknown statusline section"},
 		{name: "duplicate section", config: "[statusline]\nleft = ['mode']\nright = ['MODE']", wantErr: "duplicate statusline section"},
 		{name: "scalar section list", config: "[statusline]\nleft = 'mode'", wantErr: "must be an array"},

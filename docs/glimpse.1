@@ -372,6 +372,17 @@ a path too long for the statusline is clipped from the left.
 .B [statusline.styles]
 per-section
 .BR "{ fg, bg }" .
+Under
+.BR mode ,
+the tables
+.BR view ,
+.BR search ,
+.BR follow ,
+and
+.B help
+override those colors in that mode, e.g.
+.BR "search = { bg = \(dqyellow\(dq }" ;
+caps follow the mode's background.
 .TP
 .B [keybinds]
 .IB action " = [" keys... ]

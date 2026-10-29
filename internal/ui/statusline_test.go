@@ -309,3 +309,42 @@ func TestColorsAcceptPaletteNamesAndHex(t *testing.T) {
 		}
 	}
 }
+
+func TestStatuslineModeStyles(t *testing.T) {
+	open, close := "<", ">"
+	s, err := NewStatusline(StatuslineConfig{
+		Left: []string{StatusMode}, Right: []string{}, SeparatorOpen: &open, SeparatorClose: &close,
+		Styles:     map[string]Colors{"mode": {FG: "black", BG: "blue"}},
+		ModeStyles: map[string]Colors{"search": {BG: "yellow"}, "FOLLOW": {FG: "white"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		mode   string
+		fg, bg color.Color
+	}{
+		{ModeView, color.PaletteColor(0), color.PaletteColor(4)},
+		{ModeSearch, color.PaletteColor(0), color.PaletteColor(3)},
+		{ModeFollow, color.PaletteColor(7), color.PaletteColor(4)},
+		{ModeHelp, color.PaletteColor(0), color.PaletteColor(4)},
+	} {
+		bar := s.Format(StatusState{Mode: tt.mode}, 30, false)
+		mode, cap := bar.Spans[0].Style, bar.Spans[1].Style
+		if mode.GetForeground() != tt.fg || mode.GetBackground() != tt.bg {
+			t.Errorf("%s: fg %v bg %v", tt.mode, mode.GetForeground(), mode.GetBackground())
+		}
+		if bar.Spans[1].Text != ">" || cap.GetForeground() != tt.bg {
+			t.Errorf("%s: cap %q in %v", tt.mode, bar.Spans[1].Text, cap.GetForeground())
+		}
+	}
+	for _, config := range []StatuslineConfig{
+		{ModeStyles: map[string]Colors{"insert": {BG: "red"}}},
+		{ModeStyles: map[string]Colors{"view": {BG: "nope"}}},
+		{ModeStyles: map[string]Colors{"view": {BG: "red"}, "VIEW": {BG: "blue"}}},
+	} {
+		if _, err := NewStatusline(config); err == nil {
+			t.Errorf("accepted %+v", config.ModeStyles)
+		}
+	}
+}
