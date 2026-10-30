@@ -1,13 +1,16 @@
 package search
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"glimpse/internal/content"
+	"io"
 	"math/rand"
 	"regexp"
 	"strings"
 	"testing"
+
+	"glimpse/internal/content"
 )
 
 func TestQueryTranslate(t *testing.T) {
@@ -95,6 +98,9 @@ func TestRegexWalk(t *testing.T) {
 		{"w\bwo\bor\brd\bd x", Query{Text: "wo.d"}, "0-12"},
 		{"界x 界y", Query{Text: "界."}, "0-4 5-9"},
 		{"a\nb\n", Query{Text: "^.$"}, "0-1 2-3"},
+		// An unterminated \Q quotes the rest of the pattern.
+		{"a.b a(x ax(", Query{Text: `a.\Q(`}, "8-11"},
+		{"x$ y", Query{Text: `\w\Q$`}, "0-2"},
 	} {
 		if got := strings.Join(regexMatches(t, tt.input, tt.query), " "); got != tt.want {
 			t.Errorf("%q in %q = %q, want %q", tt.query.Text, tt.input, got, tt.want)
@@ -143,6 +149,47 @@ func TestRegexLongLines(t *testing.T) {
 	long := strings.Repeat("x", 4*MaxMatchBytes) + "\n"
 	if got := regexMatches(t, long, Query{Text: "x+"}); len(got) != 1 || !strings.HasSuffix(got[0], fmt.Sprintf("-%d", 4*MaxMatchBytes)) {
 		t.Errorf("long match = %v", got)
+	}
+}
+
+// TestRegexLongMultibyteLines repeats the whole-line comparison with runes of
+// every UTF-8 length, so window cuts and resumes land inside runes, and with
+// patterns that also match empty strings.
+func TestRegexLongMultibyteLines(t *testing.T) {
+	random := rand.New(rand.NewSource(2))
+	runes := []string{"a", "b", " ", "é", "界", "😀", "ß"}
+	var input strings.Builder
+	for _, length := range []int{3*MaxMatchBytes + 5, 2 * MaxMatchBytes, 7} {
+		for written := 0; written < length; {
+			r := runes[random.Intn(len(runes))]
+			input.WriteString(r)
+			written += len(r)
+		}
+		input.WriteByte('\n')
+	}
+	text := input.String()
+	for _, pattern := range []string{`界.`, `é+`, `a*`, `(?i)ß|É`, `\bb`, `[^a ]{2}`, `😀$`, `^.`} {
+		var want []string
+		offset := 0
+		for _, line := range strings.SplitAfter(text, "\n") {
+			body := strings.TrimSuffix(line, "\n")
+			for _, m := range regexp.MustCompile(pattern).FindAllStringIndex(body, -1) {
+				if m[0] < m[1] {
+					want = append(want, fmt.Sprintf("%d-%d", offset+m[0], offset+m[1]))
+				}
+			}
+			offset += len(line)
+		}
+		got := regexMatches(t, text, Query{Text: pattern})
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			for i := range min(len(got), len(want)) {
+				if got[i] != want[i] {
+					t.Errorf("%s: match %d = %s, want %s", pattern, i, got[i], want[i])
+					break
+				}
+			}
+			t.Errorf("%s: %d matches, want %d", pattern, len(got), len(want))
+		}
 	}
 }
 
@@ -264,4 +311,72 @@ func TestReplacementCharacterLiteral(t *testing.T) {
 	if want := []matchRange{{0, 3}, {5, 11}, {12, 13}}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("regex matches %v, want %v", got, want)
 	}
+}
+
+// referenceRegex runs Go's regexp over each decoded line in one piece, without
+// the windows, ASCII batching, or resume patterns of walkRegex.
+func referenceRegex(t testing.TB, input string, re *regexp.Regexp) []string {
+	t.Helper()
+	reader := searchReader{reader: content.NewReader(strings.NewReader(input), 0, int64(len(input)), 0, true), ctx: context.Background()}
+	var got []string
+	var text []byte
+	var starts, ends []int64
+	flush := func() {
+		body := bytes.TrimSuffix(text, []byte{'\r'})
+		for _, m := range re.FindAllIndex(body, -1) {
+			if m[0] < m[1] {
+				got = append(got, fmt.Sprintf("%d-%d", starts[m[0]], ends[m[1]-1]))
+			}
+		}
+		text, starts, ends = text[:0], starts[:0], ends[:0]
+	}
+	for {
+		token, err := reader.next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token.Hidden {
+			continue
+		}
+		if token.Raw == '\n' {
+			flush()
+			continue
+		}
+		encoded := string(token.Raw)
+		text = append(text, encoded...)
+		for range len(encoded) {
+			starts, ends = append(starts, token.Start), append(ends, token.End)
+		}
+	}
+	flush()
+	return got
+}
+
+func FuzzRegex(f *testing.F) {
+	f.Add("foo bar\r\nbar foo\n", "^bar|o+$", false)
+	f.Add("pre\x1b[31mnee\x1b[0mdle w\bwo\bor\brd\bd", `n.e|w\w`, true)
+	f.Add("界x 界y\nσΣς\xff", `[σ界].|\pL\b`, true)
+	f.Fuzz(func(t *testing.T, input, pattern string, ignore bool) {
+		if len(input) > 4096 || len(pattern) > 32 {
+			t.Skip()
+		}
+		query := Query{Text: pattern, IgnoreCase: ignore}
+		// Escapes that change the translation, and plain literals (searched
+		// with overlapping KMP matches), are covered by other tests.
+		if strings.Contains(pattern, `\V`) || strings.Contains(pattern, `\c`) || strings.Contains(pattern, `\C`) || !query.IsRegex() {
+			t.Skip()
+		}
+		flags := ""
+		if ignore {
+			flags = "(?i)"
+		}
+		// The query is read as runes, so invalid UTF-8 becomes U+FFFD.
+		want := referenceRegex(t, input, regexp.MustCompile(flags+string([]rune(pattern))))
+		if got := regexMatches(t, input, query); strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("%q in %q = %v, want %v", pattern, input, got, want)
+		}
+	})
 }

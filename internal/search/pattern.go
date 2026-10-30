@@ -72,9 +72,15 @@ func (q Query) compile() (matcher, error) {
 	if fold {
 		flags = "(?i)"
 	}
+	// resume wraps the parsed form, in which nothing is left open: an
+	// unterminated \Q in the source would quote the closing parenthesis.
+	parsed, err := syntax.Parse(source, syntax.Perl)
+	if err != nil {
+		return matcher{}, fmt.Errorf("invalid pattern: %w", err)
+	}
 	return matcher{
 		re:     regexp.MustCompile(flags + source),
-		resume: regexp.MustCompile(flags + `\A(?s:.)(?s:.*?)(` + source + ")"),
+		resume: regexp.MustCompile(flags + `\A(?s:.)(?s:.*?)(` + parsed.String() + ")"),
 	}, nil
 }
 
