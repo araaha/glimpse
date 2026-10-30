@@ -41,6 +41,32 @@ const (
 )
 const colorMask Style = (1 << 25) - 1
 
+// UnderlineShape selects how an underline is drawn, from SGR 4:2 to 4:5.
+// Zero is a single line, so 4 and 4:1 store the same style.
+type UnderlineShape uint8
+
+const (
+	UnderlineSingle UnderlineShape = iota
+	_
+	UnderlineDouble
+	UnderlineCurly
+	UnderlineDotted
+	UnderlineDashed
+)
+
+const shapeShift = 56
+const shapeMask Style = 7 << shapeShift
+
+// UnderlineShape is meaningful only while Underline is set.
+func (s Style) UnderlineShape() UnderlineShape { return UnderlineShape(s & shapeMask >> shapeShift) }
+
+func (s Style) underline(shape UnderlineShape) Style {
+	if shape == 1 {
+		shape = UnderlineSingle
+	}
+	return s&^shapeMask | Underline | Style(shape)<<shapeShift
+}
+
 func (s Style) Foreground() (uint32, bool) {
 	return s.ForegroundColor().RGB()
 }
@@ -98,6 +124,14 @@ func sgr(style Style, underline Color, parameters string) (Style, Color) {
 	}
 	for i := 0; i < len(values); i++ {
 		value := values[i]
+		if value < 0 { // 4:N, see sgrValues
+			if shape := UnderlineShape(-1 - value); shape == 0 {
+				style &^= Underline | shapeMask
+			} else {
+				style = style.underline(shape)
+			}
+			continue
+		}
 		if value != 38 && value != 48 && value != 58 {
 			style, underline = sgrBasic(style, underline, value)
 			continue
@@ -155,7 +189,7 @@ func sgrBasic(style Style, underline Color, value int) (Style, Color) {
 	case value == 3:
 		style |= Italic
 	case value == 4:
-		style |= Underline
+		style = style.underline(UnderlineSingle)
 	case value == 7:
 		style |= Reverse
 	case value == 9:
@@ -165,7 +199,7 @@ func sgrBasic(style Style, underline Color, value int) (Style, Color) {
 	case value == 23:
 		style &^= Italic
 	case value == 24:
-		style &^= Underline
+		style &^= Underline | shapeMask
 	case value == 27:
 		style &^= Reverse
 	case value == 29:
@@ -190,13 +224,24 @@ func sgrBasic(style Style, underline Color, value int) (Style, Color) {
 
 // Extended color atoms may use semicolons or ISO-style colon subparameters.
 // Keep colon groups intact, so unsupported groups cannot accidentally become
-// unrelated attributes (e.g. 4:3 must not be interpreted as italic).
+// unrelated attributes (e.g. 4:3 must not be interpreted as italic). An
+// underline shape 4:N becomes the value -1-N, which input cannot produce.
 func sgrValues(parameters string) ([]int, bool) {
 	var values []int
 	for _, atom := range strings.Split(parameters, ";") {
 		parts := []string{atom}
 		if strings.Contains(atom, ":") {
 			parts = strings.Split(atom, ":")
+			if len(parts) == 2 && parts[0] == "4" {
+				shape, err := strconv.Atoi(parts[1])
+				if err != nil || shape < 0 || shape > int(UnderlineDashed) {
+					return nil, false
+				}
+				if values = append(values, -1-shape); len(values) > 64 {
+					return nil, false
+				}
+				continue
+			}
 			if len(parts) < 3 || parts[0] != "38" && parts[0] != "48" && parts[0] != "58" {
 				return nil, false
 			}

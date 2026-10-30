@@ -158,12 +158,22 @@ func withColors(style, colors tcell.Style) tcell.Style {
 func terminalStyle(style content.Style, underline ...content.Color) tcell.Style {
 	result := tcell.StyleDefault.Bold(style&content.Bold != 0).Dim(style&content.Dim != 0).Italic(style&content.Italic != 0).Underline(style&content.Underline != 0).Reverse(style&content.Reverse != 0).StrikeThrough(style&content.Strike != 0)
 	result = result.Foreground(terminalColor(style.ForegroundColor())).Background(terminalColor(style.BackgroundColor()))
+	if style&content.Underline != 0 {
+		if shape, ok := underlineShapes[style.UnderlineShape()]; ok {
+			result = result.Underline(shape)
+		}
+	}
 	if len(underline) > 0 {
 		if underline[0] != 0 {
 			result = result.Underline(terminalColor(underline[0]))
 		}
 	}
 	return result
+}
+
+var underlineShapes = map[content.UnderlineShape]tcell.UnderlineStyle{
+	content.UnderlineDouble: tcell.UnderlineStyleDouble, content.UnderlineCurly: tcell.UnderlineStyleCurly,
+	content.UnderlineDotted: tcell.UnderlineStyleDotted, content.UnderlineDashed: tcell.UnderlineStyleDashed,
 }
 
 func terminalColor(value content.Color) color.Color {

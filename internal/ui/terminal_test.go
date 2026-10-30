@@ -8,6 +8,7 @@ import (
 	"glimpse/internal/keybind"
 
 	"github.com/gdamore/tcell/v3"
+	"github.com/gdamore/tcell/v3/color"
 	"github.com/gdamore/tcell/v3/vt"
 )
 
@@ -71,6 +72,27 @@ func TestTerminalStyleHasOnlyExplicitSafeAttributes(t *testing.T) {
 	}
 	if id, url := style.GetUrl(); id != "" || url != "" {
 		t.Fatal("input styling activated a hyperlink")
+	}
+}
+
+func TestTerminalStyleUnderlineShapes(t *testing.T) {
+	for code, want := range map[string]tcell.UnderlineStyle{
+		"4": tcell.UnderlineStyleSolid, "4:1": tcell.UnderlineStyleSolid, "4:2": tcell.UnderlineStyleDouble,
+		"4:3": tcell.UnderlineStyleCurly, "4:4": tcell.UnderlineStyleDotted, "4:5": tcell.UnderlineStyleDashed,
+		"4:0": tcell.UnderlineStyleNone, "4:3;24": tcell.UnderlineStyleNone,
+	} {
+		input := "\x1b[" + code + ";58;5;196mX"
+		token, err := content.NewReader(strings.NewReader(input), 0, int64(len(input)), 0, true).Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		style := terminalStyle(token.Style, token.UnderlineColor)
+		if got := style.GetUnderlineStyle(); got != want {
+			t.Errorf("%s: underline style %d, want %d", code, got, want)
+		}
+		if want != tcell.UnderlineStyleNone && style.GetUnderlineColor() != color.PaletteColor(196) {
+			t.Errorf("%s: underline color %v", code, style.GetUnderlineColor())
+		}
 	}
 }
 

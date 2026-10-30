@@ -56,7 +56,7 @@ func TestUnderlineColorsAreIndependentAndResetSeparately(t *testing.T) {
 }
 
 func TestColonColorsDoNotBecomeUnrelatedAttributes(t *testing.T) {
-	for _, code := range []string{"58:5:999", "58:2::256:0:0", "58:2:1:1:2:3", "58:2::-1:2:3", "4:3"} {
+	for _, code := range []string{"58:5:999", "58:2::256:0:0", "58:2:1:1:2:3", "58:2::-1:2:3", "4:6", "4:1:2", "4:", "3:1"} {
 		got := tokens(t, "\x1b[4;58;5;196m\x1b["+code+"mX")
 		if len(got) != 1 || got[0].Style != Underline || got[0].UnderlineColor != indexedColor(196) {
 			t.Fatalf("invalid/unsupported %q changed style: %+v", code, got)
@@ -155,5 +155,36 @@ func TestPaletteApproximations(t *testing.T) {
 		if got, ok := indexedColor(index).RGB(); !ok || got != want {
 			t.Errorf("palette %d = %06x, want %06x", index, got, want)
 		}
+	}
+}
+
+func TestUnderlineShapes(t *testing.T) {
+	for _, tt := range []struct {
+		code  string
+		shape UnderlineShape
+	}{
+		{"4", UnderlineSingle}, {"4:1", UnderlineSingle}, {"4:2", UnderlineDouble},
+		{"4:3", UnderlineCurly}, {"4:4", UnderlineDotted}, {"4:5", UnderlineDashed},
+		{"4:3;4", UnderlineSingle}, {"4:2;4:4", UnderlineDotted},
+	} {
+		got := tokens(t, "\x1b["+tt.code+"mX")[0].Style
+		if got&Underline == 0 || got.UnderlineShape() != tt.shape || got&^(Underline|shapeMask) != 0 {
+			t.Errorf("%q = %b, shape %d; want shape %d alone", tt.code, got, got.UnderlineShape(), tt.shape)
+		}
+	}
+	// A shape keeps the colors and attributes around it, and 4 and 4:1 are the
+	// same style, so runs of either merge.
+	got := tokens(t, "\x1b[1;4:3;58;5;196;31mA\x1b[4:0mB\x1b[4:5mC\x1b[24mD\x1b[4:4mE\x1b[0mF\x1b[4mG\x1b[4:1mH")
+	if got[0].Style&Bold == 0 || got[0].Style.UnderlineShape() != UnderlineCurly || got[0].UnderlineColor != indexedColor(196) || got[0].Style.ForegroundColor() != indexedColor(1) {
+		t.Fatalf("combined sequence = %+v", got[0])
+	}
+	if got[1].Style&(Underline|shapeMask) != 0 || got[1].Style&Bold == 0 {
+		t.Fatalf("4:0 = %b", got[1].Style)
+	}
+	if got[2].Style.UnderlineShape() != UnderlineDashed || got[3].Style&(Underline|shapeMask) != 0 {
+		t.Fatalf("24 after 4:5 = %b", got[3].Style)
+	}
+	if got[5].Style != 0 || got[6].Style != got[7].Style {
+		t.Fatalf("reset or single forms differ: %b %b %b", got[5].Style, got[6].Style, got[7].Style)
 	}
 }
