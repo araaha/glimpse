@@ -43,6 +43,20 @@ func asciiPrefix(data []byte) int {
 	return n
 }
 
+// plainPrefix is asciiPrefix for decoders of runes rather than graphemes, for
+// which tabs are ordinary text. The final byte is still held back: a later
+// backspace, even past hidden controls, may overstrike it.
+func plainPrefix(data []byte) int {
+	n := 0
+	for n < len(data) && (data[n] >= ' ' && data[n] <= '~' || data[n] == '\n' || data[n] == '\t') {
+		n++
+	}
+	if n > 0 && data[n-1] != '\n' {
+		n--
+	}
+	return n
+}
+
 // sgrPrefix recognizes a complete buffered SGR without consuming it. Other
 // controls, incomplete sequences, and Unicode go through the general decoder.
 func sgrPrefix(data []byte) int {
@@ -89,9 +103,17 @@ func (r *Reader) ascii() (ASCIIRun, bool) {
 		r.reader.Peek(2)
 	}
 	data, _ := r.reader.Peek(r.reader.Buffered())
-	n := asciiPrefix(data)
-	if n < len(data) && data[n] >= ' ' && data[n] <= '~' && asciiBoundary(data[n+1:]) {
-		n++ // A buffered SGR followed by ASCII cannot extend this grapheme.
+	var n int
+	if r.ignoreStyles {
+		n = plainPrefix(data)
+		if n < len(data) && (data[n] >= ' ' && data[n] <= '~' || data[n] == '\t') && asciiBoundary(data[n+1:]) {
+			n++ // Only SGR separates it from text, so no backspace can follow.
+		}
+	} else {
+		n = asciiPrefix(data)
+		if n < len(data) && data[n] >= ' ' && data[n] <= '~' && asciiBoundary(data[n+1:]) {
+			n++ // A buffered SGR followed by ASCII cannot extend this grapheme.
+		}
 	}
 	if n == 0 {
 		return ASCIIRun{}, false
@@ -102,8 +124,23 @@ func (r *Reader) ascii() (ASCIIRun, bool) {
 	return run, true
 }
 
+// SkipSGR decodes one complete SGR sequence at the start of the buffered input,
+// without reading further. It reports false when the input starts otherwise.
+func (r *Reader) SkipSGR() (Token, bool) {
+	if r.reader.Buffered() == 0 {
+		r.reader.Peek(1)
+	}
+	data, _ := r.reader.Peek(r.reader.Buffered())
+	if sgrPrefix(data) == 0 {
+		return Token{}, false
+	}
+	token, err := r.Next()
+	return token, err == nil
+}
+
 // ASCII returns a contiguous run without decoding individual tokens. Buffered
-// lookahead must prove the last byte cannot join a grapheme or an overstrike.
+// lookahead must prove the last byte cannot join a grapheme or an overstrike;
+// a plain reader decodes runes, so its runs also include tabs.
 // Bytes remains valid only until the next reader operation.
 func (r *Reader) ASCII() (ASCIIRun, bool) { return r.ascii() }
 

@@ -120,6 +120,10 @@ func checkChunks(t testing.TB, input, query string, smart, ignore bool, size int
 					if got != want || err != nil {
 						t.Fatalf("FindInChunks(%q, %q) origin %d anchor %d backward %v include %v = %+v, %v; want %+v (chunks %+v)", input, query, origin, anchor, backward, include, got, err, want, chunks.List)
 					}
+					got, err = FindParallel(ctx, source, literal(query, smart, ignore), origin, anchor, backward, include, options)
+					if got != want || err != nil {
+						t.Fatalf("FindParallel(%q, %q) origin %d anchor %d backward %v include %v = %+v, %v; want %+v", input, query, origin, anchor, backward, include, got, err, want)
+					}
 				}
 			}
 		}
@@ -160,6 +164,27 @@ func TestChunksRejectNewlineInsideHiddenString(t *testing.T) {
 	}
 	if chunks.Total() != 3 {
 		t.Fatalf("total = %d, want 3: %+v", chunks.Total(), chunks.List)
+	}
+}
+
+func TestFindParallelFallsBackAtHiddenNewline(t *testing.T) {
+	input := "hit\n\x1b]0;hit\nhit\x07hit\nhit\n"
+	source := benchmarkSource{strings.NewReader(input)}
+	query := literal("hit", false, false)
+	ctx := context.Background()
+	for origin := int64(0); origin <= source.Len(); origin++ {
+		for _, backward := range []bool{false, true} {
+			for _, include := range []bool{false, true} {
+				want, err := FindFrom(ctx, source, query, origin, 0, backward, include)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := FindParallel(ctx, source, query, origin, 0, backward, include, Options{ChunkSize: 1, Workers: 4})
+				if got != want || err != nil {
+					t.Fatalf("origin %d backward %v include %v = %+v, %v; want %+v", origin, backward, include, got, err, want)
+				}
+			}
+		}
 	}
 }
 

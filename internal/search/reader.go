@@ -21,6 +21,7 @@ type searchReader struct {
 	// a decoded token spanning it, so restarting there would decode differently.
 	boundary  int64
 	straddled bool
+	tokens    int // decoded since the last cancellation check
 }
 
 func (r *searchReader) check(start, end int64) {
@@ -39,6 +40,17 @@ func (r *searchReader) ascii() (content.ASCIIRun, bool) {
 	}
 	if r.hasQueued || r.hasPending && (r.pending.Raw < ' ' || r.pending.Raw > '~' || r.pending.End != r.pending.Start+1) {
 		return content.ASCIIRun{}, false
+	}
+	if !r.hasPending {
+		// Nothing is pending that a backspace past this styling could
+		// overstrike, so it can be skipped instead of decoded token by token.
+		for {
+			token, ok := r.reader.SkipSGR()
+			if !ok {
+				break
+			}
+			r.check(token.Start, token.End)
+		}
 	}
 	run, ok := r.reader.ASCII()
 	if !ok {
@@ -60,8 +72,10 @@ func (r *searchReader) raw() (content.Token, error) {
 		return token, nil
 	}
 	for {
-		if err := r.ctx.Err(); err != nil {
-			return content.Token{}, err
+		if r.tokens++; r.tokens%64 == 0 {
+			if err := r.ctx.Err(); err != nil {
+				return content.Token{}, err
+			}
 		}
 		token, err := r.reader.Next()
 		if err != nil {

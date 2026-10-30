@@ -181,6 +181,10 @@ func TestRegexChunks(t *testing.T) {
 			if err != nil || got != wantResult {
 				t.Fatalf("size %d backward %v: %+v, %v; want %+v", size, backward, got, err, wantResult)
 			}
+			got, err = FindParallel(context.Background(), source, query, 1000, 0, backward, false, Options{ChunkSize: size, Workers: 3})
+			if err != nil || got != wantResult {
+				t.Fatalf("parallel size %d backward %v: %+v, %v; want %+v", size, backward, got, err, wantResult)
+			}
 		}
 	}
 }

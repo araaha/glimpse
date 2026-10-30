@@ -245,7 +245,10 @@ func countChunks(ctx context.Context, source Source, start, end, limit int64, op
 // lineStart returns the offset after the first raw newline in [from, end), or
 // -1. It is only a candidate restart point until a chunk scan verifies it.
 func lineStart(source Source, from, end int64) (int64, error) {
-	var buffer [64 << 10]byte
+	// Most lines are short; reading 64 KiB at every boundary of a large file
+	// would copy a sizable fraction of it.
+	var small [4 << 10]byte
+	buffer := small[:]
 	for from < end {
 		n, err := source.ReadAt(buffer[:min(int64(len(buffer)), end-from)], from)
 		if i := bytes.IndexByte(buffer[:n], '\n'); i >= 0 {
@@ -255,6 +258,9 @@ func lineStart(source Source, from, end int64) (int64, error) {
 			return -1, nil
 		}
 		from += int64(n)
+		if len(buffer) == len(small) {
+			buffer = make([]byte, 64<<10)
+		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			return 0, err
 		}

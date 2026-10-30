@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"glimpse/internal/search"
@@ -100,7 +101,8 @@ func (s *searchState) echoQuery() string {
 }
 
 // start searches in the background. With an exact chunk index for the current
-// snapshot, chunks without matches are skipped instead of scanned.
+// snapshot, chunks without matches are skipped instead of scanned; otherwise
+// chunks are scanned in parallel, nearest first.
 func (s *searchState) start(ctx context.Context, source search.Source, query search.Query, chunks search.Chunks, indexed bool, origin, anchor int64, backward, include bool) {
 	repeats := s.repeats
 	s.stop()
@@ -116,7 +118,8 @@ func (s *searchState) start(ctx context.Context, source search.Source, query sea
 		if indexed {
 			result, err = search.FindInChunks(ctx, source, query, chunks, origin, anchor, backward, include)
 		} else {
-			result, err = search.FindFrom(ctx, source, query, origin, anchor, backward, include)
+			options := search.Options{Workers: max(1, runtime.GOMAXPROCS(0)-1)}
+			result, err = search.FindParallel(ctx, source, query, origin, anchor, backward, include, options)
 		}
 		select {
 		case s.results <- searchResponse{generation, result, err}:
