@@ -69,14 +69,20 @@ type session struct {
 	body                bodyCache
 }
 
-// bodyCache keeps the last painted rows, reused while G waits for the index.
+// bodyCache keeps the last painted rows, reused while G or a reflow waits
+// for the index.
 type bodyCache struct {
-	lines  []string
-	styled [][]ui.Glyph
-	layout ui.Layout
-	offset int64
-	base   int64
-	left   int
+	lines       []string
+	styled      [][]ui.Glyph
+	gutter      []string
+	gutterWidth int
+	hexColors   []ui.HexColor
+	highlights  []ui.Highlight
+	topLine     int
+	layout      ui.Layout
+	offset      int64
+	base        int64
+	left        int
 }
 
 func (a *App) newSession(ctx context.Context, screen tcell.Screen, name string) (*session, error) {
@@ -368,9 +374,12 @@ func (s *session) draw(length int64) error {
 	s.view.reflow(s.text.RowAt(anchor), s.text.RowCount(), s.layout.Body.Height, length != s.previousLength || s.text.RowCount() != s.previousRows || s.text.Indexed() != s.previousIndexed)
 	top := s.text.Offset(s.view.top)
 	s.text.SetLeft(s.left)
+	// A reflow restarts the row index, and until it reaches the old top row the
+	// rows at view.top are wherever indexing has got to. Keep the last body.
+	frozen := s.hasPendingOffset && !s.pendingSearch && s.body.lines != nil && s.help == nil
 	// While G is pending, only progress/status changes. Reuse an already
 	// complete, immutable starting viewport instead of decoding it at 60 Hz.
-	cached := s.wantBottom && s.body.layout == s.layout && s.body.left == s.left && s.body.offset == top && s.body.base == discarded && s.view.top+s.layout.Body.Height < s.previousRows
+	cached := frozen || s.wantBottom && s.body.layout == s.layout && s.body.left == s.left && s.body.offset == top && s.body.base == discarded && s.view.top+s.layout.Body.Height < s.previousRows
 	lines, styled := s.body.lines, s.body.styled
 	if !cached {
 		var err error
@@ -390,6 +399,9 @@ func (s *session) draw(length int64) error {
 	}
 	key := countKey{query: s.query(s.search.query), base: discarded, end: s.Document.Len(), generation: s.loadedGeneration}
 	state := s.status(top, target, key, indexing)
+	if frozen {
+		state.TopLine = s.body.topLine
+	}
 	bar := s.Statusline.Format(state, s.layout.Body.Width, s.wideAmbiguous)
 	s.counts.visible = s.layout.StatusRow >= 0 && bar.Has(ui.StatusSearchResults)
 	s.counts.update(s.ctx, s.Document, key, target, s.search.matched, s.search.busy || s.hasPendingOffset)
@@ -399,12 +411,23 @@ func (s *session) draw(length int64) error {
 		Search: s.footer(paused, discarded, watchStatus), WideAmbiguous: s.wideAmbiguous, HighlightStyle: s.SearchHighlight, UnprintableStyle: s.UnprintableStyle,
 		Reading: s.reading, Indexing: indexing, SeekingEnd: s.wantBottom, Follow: s.view.follow, DocumentLength: s.Document.Len(),
 	}
-	s.decorate(&frame, key.query)
+	if frozen {
+		frame.Gutter, frame.GutterWidth, frame.GutterStyle = s.body.gutter, s.body.gutterWidth, s.LineNumberStyle
+		frame.HexColors, frame.Highlights = s.body.hexColors, s.body.highlights
+	} else {
+		s.decorate(&frame, key.query)
+	}
 	s.showPrompt(&frame)
 	if err := s.Renderer.Render(frame); err != nil {
 		return err
 	}
-	s.body = bodyCache{lines: lines, styled: styled, layout: s.layout, offset: top, base: discarded, left: s.left}
+	if !frozen {
+		s.body = bodyCache{
+			lines: lines, styled: styled, gutter: frame.Gutter, gutterWidth: frame.GutterWidth,
+			hexColors: frame.HexColors, highlights: frame.Highlights, topLine: state.TopLine,
+			layout: s.layout, offset: top, base: discarded, left: s.left,
+		}
+	}
 	s.previousLength = length
 	s.previousRows, s.previousIndexed = s.text.RowCount(), s.text.Indexed()
 	s.previousPaused, s.previousWatchStatus = paused, watchStatus

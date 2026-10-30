@@ -511,6 +511,45 @@ func TestRunLargeFilePaintsAndQuitsBeforeFullIndex(t *testing.T) {
 	viewer.expectExit(t)
 }
 
+func TestRunLineNumbersKeepViewWhileReindexing(t *testing.T) {
+	var input strings.Builder
+	for i := 1; i <= 300000; i++ {
+		fmt.Fprintf(&input, "line %d\n", i)
+	}
+	path := filepath.Join(t.TempDir(), "numbered")
+	if err := os.WriteFile(path, []byte(input.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer := startReaderViewer(t, Options{}, file, "numbered", 40, 6, false)
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.Indexing })
+	viewer.press(":")
+	viewer.typeText("200000")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, firstFrameLine("line 200000"))
+	// The gutter narrows wrapped text and restarts the row index; until it
+	// reaches line 200000 again, the view must not show other rows.
+	viewer.press("#")
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case frame := <-viewer.frames:
+			if len(frame.Lines) == 0 || frame.Lines[0] != "line 200000" {
+				t.Fatalf("frame while reindexing starts with %q", frame.Lines)
+			}
+			if len(frame.Gutter) > 0 && frame.Gutter[0] == "200000" {
+				return
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for numbered rows")
+		}
+	}
+}
+
 func TestRunFollowCatchesUpWithNewlineFreeBurst(t *testing.T) {
 	application, _ := New(Options{Follow: true})
 	screen, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 24}), tcell.OptNegotiation(false))
