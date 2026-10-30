@@ -65,8 +65,7 @@ func (m *Matcher) Feed(key Key) []Command {
 	return m.resolve(false)
 }
 
-func (m *Matcher) Pending() bool { return len(m.pending) != 0 || m.count != 0 }
-func (m *Matcher) Cancel()       { m.pending, m.count = nil, 0 }
+func (m *Matcher) Cancel() { m.pending, m.count = nil, 0 }
 
 // DrainLiteral settles prompt text before bracketed paste without executing a
 // pending shortcut (in particular, an ambiguous accept/cancel binding).

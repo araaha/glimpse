@@ -57,7 +57,7 @@ func TestSearchLineScrollingAndSafety(t *testing.T) {
 		{"/abc", 0, 0, "", 0},
 		{"\x1b", 0, 20, "'\\x1b'", 0},
 	} {
-		got, column := searchLine(tt.text, tt.cursor, tt.width)
+		got, column := searchLine(tt.text, tt.cursor, tt.width, false)
 		if got != tt.want || column != tt.column {
 			t.Fatalf("searchLine(%q, %d, %d) = (%q, %d), want (%q, %d)", tt.text, tt.cursor, tt.width, got, column, tt.want, tt.column)
 		}
@@ -76,7 +76,7 @@ func TestTerminalStyleHasOnlyExplicitSafeAttributes(t *testing.T) {
 
 func TestSearchFooterDoesNotClipInsideGraphemes(t *testing.T) {
 	input := "/ab👨‍👩‍👧‍👦cd"
-	text, cursor := searchLine(input, len([]rune(input)), 4)
+	text, cursor := searchLine(input, len([]rune(input)), 4, false)
 	if text != "cd" || cursor != 2 {
 		t.Fatalf("grapheme clipping = %q, %d", text, cursor)
 	}

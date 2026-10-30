@@ -119,7 +119,7 @@ func (t *Terminal) Render(frame Frame) error {
 	}
 	t.screen.HideCursor()
 	if frame.Layout.SearchRow >= 0 {
-		text, cursor := searchLineWithPolicy(frame.Search, frame.SearchCursor, frame.Layout.Body.Width, frame.WideAmbiguous)
+		text, cursor := searchLine(frame.Search, frame.SearchCursor, frame.Layout.Body.Width, frame.WideAmbiguous)
 		t.screen.PutStr(0, frame.Layout.SearchRow, text)
 		if frame.Ghost != "" {
 			used := (displaywidth.Options{EastAsianWidth: frame.WideAmbiguous}).String(text)
@@ -178,11 +178,7 @@ func terminalColor(value content.Color) color.Color {
 
 // searchLine keeps the editing cursor visible without splitting UTF-8. Controls
 // from history/errors are rendered visibly, never sent as terminal commands.
-func searchLine(text string, cursor, width int) (string, int) {
-	return searchLineWithPolicy(text, cursor, width, false)
-}
-
-func searchLineWithPolicy(text string, cursor, width int, wide bool) (string, int) {
+func searchLine(text string, cursor, width int, wide bool) (string, int) {
 	if width <= 0 {
 		return "", 0
 	}

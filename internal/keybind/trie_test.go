@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+func (m *Matcher) Pending() bool { return len(m.pending) != 0 || m.count != 0 }
+
 func TestDefaultSequences(t *testing.T) {
 	tests := []struct {
 		keys []Key

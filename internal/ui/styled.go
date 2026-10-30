@@ -16,42 +16,8 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		left = t.left
 	}
 	limit := left + t.width
-	// Wrapped rows take the fast path only when whole; an unwrapped row reads
-	// just the prefix that can reach the window.
-	want := end - start
-	if t.nowrap {
-		want = min(want, int64(limit)+1)
-	}
-	if want > 0 && (t.nowrap || want <= int64(len(t.renderScratch))) {
-		if int64(cap(t.renderScratch)) < want {
-			t.renderScratch = make([]byte, want)
-		}
-		data := t.renderScratch[:want]
-		if _, err := t.source.ReadAt(data, start); err != nil {
-			return nil, err
-		}
-		count, plain := len(data), true
-		if data[count-1] == '\n' {
-			count--
-		}
-		for _, b := range data[:count] {
-			if b < ' ' || b > '~' {
-				plain = false
-				break
-			}
-		}
-		// A plain prefix maps bytes to columns. A wider unwrapped row overflows;
-		// later CR/BS edits past the window are ignored as in the general path.
-		if plain && (count <= limit || t.nowrap) {
-			if count > limit {
-				count, t.overflow = limit, true
-			}
-			var glyphs []Glyph
-			for i := left; i < count; i++ {
-				glyphs = append(glyphs, Glyph{Text: string(data[i : i+1]), Column: i - left, Width: 1, Style: style, UnderlineColor: underline, Start: start + int64(i), End: start + int64(i) + 1})
-			}
-			return glyphs, nil
-		}
+	if glyphs, ok, err := t.plainRow(start, end, left, limit, style, underline); ok || err != nil {
+		return glyphs, err
 	}
 	reader := content.NewGraphemeReader(t.source, start, end, style, true, underline)
 	// cells holds the window; cursor and extent are row columns.
@@ -198,4 +164,47 @@ func (t *Text) readStyledRow(start, end int64, style content.Style, underline co
 		}
 	}
 	return glyphs, nil
+}
+
+// plainRow lays out a row of printable ASCII, one byte per column. It reports
+// false when the row needs the general path.
+func (t *Text) plainRow(start, end int64, left, limit int, style content.Style, underline content.Color) ([]Glyph, bool, error) {
+	// Wrapped rows take the fast path only when whole; an unwrapped row reads
+	// just the prefix that can reach the window.
+	want := end - start
+	if t.nowrap {
+		want = min(want, int64(limit)+1)
+	}
+	if want <= 0 || !t.nowrap && want > int64(len(t.renderScratch)) {
+		return nil, false, nil
+	}
+	if int64(cap(t.renderScratch)) < want {
+		t.renderScratch = make([]byte, want)
+	}
+	data := t.renderScratch[:want]
+	if _, err := t.source.ReadAt(data, start); err != nil {
+		return nil, false, err
+	}
+	count := len(data)
+	if data[count-1] == '\n' {
+		count--
+	}
+	for _, b := range data[:count] {
+		if b < ' ' || b > '~' {
+			return nil, false, nil
+		}
+	}
+	// A wider unwrapped row overflows; later CR/BS edits past the window are
+	// ignored as in the general path.
+	if count > limit {
+		if !t.nowrap {
+			return nil, false, nil
+		}
+		count, t.overflow = limit, true
+	}
+	var glyphs []Glyph
+	for i := left; i < count; i++ {
+		glyphs = append(glyphs, Glyph{Text: string(data[i : i+1]), Column: i - left, Width: 1, Style: style, UnderlineColor: underline, Start: start + int64(i), End: start + int64(i) + 1})
+	}
+	return glyphs, true, nil
 }
