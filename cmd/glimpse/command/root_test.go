@@ -363,3 +363,21 @@ func TestEnvironmentAndTOMLValueTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigDir(t *testing.T) {
+	home := t.TempDir()
+	config := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	for _, tt := range []struct{ xdg, want string }{
+		{config, config},
+		{"", filepath.Join(home, ".config")},
+		{"relative", filepath.Join(home, ".config")},
+	} {
+		t.Setenv("XDG_CONFIG_HOME", tt.xdg)
+		got, err := configDir()
+		if got != tt.want || err != nil {
+			t.Fatalf("configDir() = (%q, %v), want %q", got, err, tt.want)
+		}
+	}
+}

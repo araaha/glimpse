@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"glimpse/internal/app"
@@ -148,8 +149,8 @@ func loadConfig(config *viper.Viper, cmd *cobra.Command, configFile string) erro
 	} else {
 		config.SetConfigName("glimpse")
 		config.SetConfigType("toml")
-		if dir, err := os.UserConfigDir(); err == nil {
-			config.AddConfigPath(dir + string(os.PathSeparator) + "glimpse")
+		if dir, err := configDir(); err == nil {
+			config.AddConfigPath(filepath.Join(dir, "glimpse"))
 		}
 	}
 
@@ -160,6 +161,20 @@ func loadConfig(config *viper.Viper, cmd *cobra.Command, configFile string) erro
 		}
 	}
 	return nil
+}
+
+// configDir follows the XDG layout on every platform, as documented; unlike
+// os.UserConfigDir, it does not move the file to ~/Library on macOS or
+// %AppData% on Windows.
+func configDir() (string, error) {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(dir) {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config"), nil
 }
 
 func readOptions(config *viper.Viper, cmd *cobra.Command) (app.Options, error) {
