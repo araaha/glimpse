@@ -228,3 +228,40 @@ func TestNewlinesMatchDecoder(t *testing.T) {
 		}
 	}
 }
+
+// A query holding U+FFFD, typed or decoded from invalid UTF-8, is still a
+// literal: its matches overlap like any other literal's.
+func TestReplacementCharacterLiteral(t *testing.T) {
+	input := "\xce\xce\xce a��b\xff\n"
+	for _, tt := range []struct {
+		query Query
+		re    bool
+	}{
+		{literal("��", false, false), false},
+		{literal("\xff\x80", false, false), false},
+		{literal("A�", true, false), false},
+		{Query{Text: "a�"}, false},
+		{Query{Text: "�+"}, true},
+	} {
+		if got := tt.query.IsRegex(); got != tt.re {
+			t.Errorf("%q IsRegex = %v, want %v", tt.query.Text, got, tt.re)
+		}
+		if !tt.re {
+			checkFastSearch(t, input, tt.query.Text, tt.query.SmartCase, tt.query.IgnoreCase)
+		}
+	}
+	if (Query{Text: `\V\x{FFFD}.` + "\uFFFD"}).IsRegex() {
+		t.Error(`\V query with U+FFFD is a regex`)
+	}
+	source := benchmarkSource{strings.NewReader(input)}
+	var got []matchRange
+	if err := Walk(context.Background(), source, Query{Text: "�+"}, 0, source.Len(), func(start, end int64) bool {
+		got = append(got, matchRange{start, end})
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []matchRange{{0, 3}, {5, 11}, {12, 13}}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("regex matches %v, want %v", got, want)
+	}
+}

@@ -60,8 +60,7 @@ func (q Query) compile() (matcher, error) {
 		}
 		return matcher{}, fmt.Errorf("invalid pattern: %w", err)
 	}
-	if prefix, complete := re.LiteralPrefix(); complete {
-		literal := []rune(prefix)
+	if literal, ok := literalRunes(re, source); ok {
 		if fold {
 			for i, r := range literal {
 				literal[i] = foldRune(r)
@@ -77,6 +76,24 @@ func (q Query) compile() (matcher, error) {
 		re:     regexp.MustCompile(flags + source),
 		resume: regexp.MustCompile(flags + `\A(?s:.)(?s:.*?)(` + source + ")"),
 	}, nil
+}
+
+// literalRunes returns the text a pattern matches when it matches only that.
+// LiteralPrefix stops at U+FFFD, which a query of invalid UTF-8 decodes to, so
+// such a literal is recognized from the parsed pattern instead; otherwise it
+// would get the regex path's non-overlapping matches.
+func literalRunes(re *regexp.Regexp, source string) ([]rune, bool) {
+	if prefix, complete := re.LiteralPrefix(); complete {
+		return []rune(prefix), true
+	}
+	parsed, err := syntax.Parse(source, syntax.Perl)
+	if err != nil {
+		return nil, false
+	}
+	if parsed = parsed.Simplify(); parsed.Op == syntax.OpLiteral && parsed.Flags&syntax.FoldCase == 0 {
+		return parsed.Rune, true
+	}
+	return nil, false
 }
 
 // translate turns the text into RE2 syntax, quoting literal sections, and

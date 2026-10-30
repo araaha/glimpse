@@ -1,0 +1,5 @@
+go test fuzz v1
+string("\xce\xce\xce\xce\xce\xce")
+string("\x8f\xbf")
+byte('[')
+bool(true)
