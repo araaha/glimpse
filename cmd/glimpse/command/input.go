@@ -22,9 +22,17 @@ func pollableInput(file *os.File) io.ReadCloser {
 	}
 	// Duplicate the descriptor so that each file owns and closes its own:
 	// sharing one would let a later close of the original hit whatever file
-	// reused the number.
+	// reused the number. Like every descriptor Go opens, the duplicate is
+	// close-on-exec, set before a concurrent fork can see it, so that [[run]]
+	// commands do not inherit the input and hold its pipe open.
 	fd := -1
-	if conn.Control(func(descriptor uintptr) { fd, err = syscall.Dup(int(descriptor)) }) != nil || err != nil {
+	if conn.Control(func(descriptor uintptr) {
+		syscall.ForkLock.RLock()
+		defer syscall.ForkLock.RUnlock()
+		if fd, err = syscall.Dup(int(descriptor)); err == nil {
+			syscall.CloseOnExec(fd)
+		}
+	}) != nil || err != nil {
 		return file
 	}
 	if err := syscall.SetNonblock(fd, true); err != nil {
