@@ -112,6 +112,44 @@ func (r *GraphemeReader) ASCII() (ASCIIRun, bool) {
 	return run, ok
 }
 
+// WideRune reports runes that are always a grapheme cluster of their own, two
+// cells wide, when another such rune or any ASCII byte follows: CJK
+// ideographs, kana, Hangul syllables, and fullwidth forms. None is a Prepend,
+// Extend, ZWJ, or SpacingMark, and a Hangul syllable joins only Hangul jamo.
+func WideRune(r rune) bool {
+	return r >= 0x4e00 && r <= 0x9fff || r >= 0x3400 && r <= 0x4dbf || r >= 0x3041 && r <= 0x3096 ||
+		r >= 0x30a1 && r <= 0x30fa || r >= 0xac00 && r <= 0xd7a3 || r >= 0xff01 && r <= 0xff60 || r >= 0xffe0 && r <= 0xffe6
+}
+
+// Wide batches buffered WideRune clusters of one style, like ASCII. Each
+// token is one cluster; the final buffered rune stays on Next unless the rune
+// after it proves its boundary. Tokens are valid until the next reader operation.
+func (r *GraphemeReader) Wide() ([]Token, bool) {
+	if len(r.tokens)-r.tokenStart < 2 && !r.eof {
+		if err := r.fill(256); err != nil {
+			return nil, false
+		}
+	}
+	tokens := r.tokens[r.tokenStart:]
+	n, size := 0, 0
+	for n+1 < len(tokens) && WideRune(tokens[n].Rune) {
+		token, next := tokens[n], tokens[n+1]
+		if next.Rune >= utf8.RuneSelf && !WideRune(next.Rune) || n > 0 && (token.Start != tokens[n-1].End || token.Style != tokens[0].Style || token.UnderlineColor != tokens[0].UnderlineColor) {
+			break
+		}
+		size += utf8.RuneLen(token.Rune)
+		n++
+	}
+	if n == 0 {
+		return nil, false
+	}
+	r.dataStart += size
+	r.tokenStart += n
+	r.consumed += int64(size)
+	r.emittedEnd = tokens[n-1].End
+	return tokens[:n], true
+}
+
 func NewGraphemeReader(source io.ReaderAt, start, end int64, style Style, complete bool, underline ...Color) *GraphemeReader {
 	r := &GraphemeReader{reader: NewReader(source, start, end, style, complete, underline...), complete: complete, lastEnd: start, emittedEnd: start, lastStyle: style}
 	if len(underline) > 0 {

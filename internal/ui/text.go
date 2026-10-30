@@ -360,6 +360,16 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 			t.scanned = run.Start + int64(len(run.Bytes))
 			continue
 		}
+		if run, ok := reader.Wide(); ok {
+			if err := t.recordStyle(run[0].Start, run[0].Style, run[0].UnderlineColor); err != nil {
+				return err
+			}
+			if err := t.addWide(run); err != nil {
+				return err
+			}
+			t.scanned = run[len(run)-1].End
+			continue
+		}
 		token, err := reader.Next()
 		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) || errors.Is(err, pager.ErrTruncated) {
 			t.exhausted = true
@@ -449,6 +459,29 @@ func (t *Text) addASCII(data []byte, offset int64) error {
 			}
 			data, offset = data[1:], offset+1
 		}
+	}
+	return nil
+}
+
+// addWide lays out clusters of one content.WideRune each, two cells wide,
+// exactly as addCluster would.
+func (t *Text) addWide(tokens []content.Token) error {
+	if t.nowrap {
+		return nil
+	}
+	w := min(2, t.width)
+	for _, token := range tokens {
+		t.struckWidth = 0
+		if t.column > 0 && t.column+2 > t.width {
+			if err := t.addRow(token.Start); err != nil {
+				return err
+			}
+			t.column = 0
+		}
+		for i := t.column; i < min(t.width, t.column+w); i++ {
+			t.cellStarts[i] = t.column
+		}
+		t.column += w
 	}
 	return nil
 }
