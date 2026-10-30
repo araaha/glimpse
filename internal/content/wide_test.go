@@ -42,7 +42,7 @@ func TestWideRunsMatchNext(t *testing.T) {
 		"日本語のテキスト\n한국어 텍스트\n",
 		"漢字\x1b[31m赤い\x1b[m字\n",
 		"がき́く\nｱｲｳＡＢＣ\n",
-		"字‍字\U0001F600字\n",
+		"字\u200d字\U0001F600字\n",
 		strings.Repeat("中文", 300) + "\n",
 	} {
 		var want, got []Cluster
