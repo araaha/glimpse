@@ -61,6 +61,21 @@ func TestCompletion(t *testing.T) {
 	if err != nil || !strings.Contains(out, "--follow-name") {
 		t.Fatalf("__complete = %q, %v", out, err)
 	}
+	for _, tt := range []struct{ flag, want string }{
+		{"--retention", "rolling\t"},
+		{"--cmdheight", "-2\t"},
+		{"--completion", "fish\n"},
+		{"--config", "toml\n:8\n"}, // file extension filter
+		{"--spool-dir", ":16\n"},   // directories only
+	} {
+		if out, err := execute(t, "", "__complete", tt.flag, ""); err != nil || !strings.Contains(out, tt.want) {
+			t.Fatalf("%s values = %q, %v", tt.flag, out, err)
+		}
+	}
+	// Numbers offer no candidates rather than file names.
+	if out, err := execute(t, "", "__complete", "--memory-budget", ""); err != nil || !strings.HasPrefix(out, ":4\n") {
+		t.Fatalf("--memory-budget values = %q, %v", out, err)
+	}
 	if _, err := execute(t, "", "--completion", "tcsh"); err == nil || !strings.Contains(err.Error(), "unknown completion shell") {
 		t.Fatalf("tcsh error = %v", err)
 	}

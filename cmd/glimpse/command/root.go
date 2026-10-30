@@ -152,6 +152,23 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Bool("wrap", true, "wrap long lines (toggle with w); otherwise scroll horizontally with h/l")
 	root.Flags().StringP("jump-target", "j", "1", "screen line for search matches and line jumps: 1 is the top, -1 the bottom, .5 the middle")
 	root.Flags().Int("cmdheight", int(ui.DefaultCmdHeight), "footer layout: -2 like -1 with the statusline initially hidden, -1 toggleable status/prompt row, 0 status with on-demand search row, 1 permanent status and search rows")
+
+	// Value completion: fixed choices, paths where they apply, and nothing
+	// (rather than file names) for numbers and labels.
+	for flag, values := range map[string][]cobra.Completion{
+		"completion":      {"bash", "zsh", "fish", "powershell"},
+		"retention":       {"lossless\tpause input when the spool quota is full", "rolling\tdrop the oldest input instead"},
+		"ambiguous-width": {"1", "2"},
+		"cmdheight":       {"-2\tlike -1, statusline initially hidden", "-1\ttoggleable status/prompt row", "0\tstatus with on-demand search row", "1\tpermanent status and search rows"},
+		"jump-target":     {"1\ttop", ".5\tmiddle", "-1\tbottom"},
+	} {
+		_ = root.RegisterFlagCompletionFunc(flag, cobra.FixedCompletions(values, cobra.ShellCompDirectiveNoFileComp))
+	}
+	for _, flag := range []string{"label", "chunk-size", "memory-budget", "spool-quota", "metadata-budget", "metadata-quota"} {
+		_ = root.RegisterFlagCompletionFunc(flag, cobra.NoFileCompletions)
+	}
+	_ = root.MarkPersistentFlagFilename("config", "toml")
+	_ = root.MarkFlagDirname("spool-dir")
 	return root
 }
 
