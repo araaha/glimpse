@@ -82,7 +82,7 @@ func TestRollingTextRebasesAfterEviction(t *testing.T) {
 }
 
 func TestIndexRewindAcrossFlushedPages(t *testing.T) {
-	index := newOffsetIndex(1024+4*8, 1<<20, t.TempDir())
+	index := newOffsetIndex(1024+4*8, &metadataQuota{limit: 1 << 20}, t.TempDir())
 	defer index.close()
 	for value := 0; value < 10; value++ {
 		if err := index.append(int64(value)); err != nil {

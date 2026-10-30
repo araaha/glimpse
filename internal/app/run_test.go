@@ -516,7 +516,6 @@ func TestRunLineNumbersKeepViewWhileReindexing(t *testing.T) {
 		t.Fatal(err)
 	}
 	viewer := startReaderViewer(t, Options{}, file, "numbered", 40, 6, false)
-	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.Indexing })
 	viewer.press(":")
 	viewer.typeText("200000")
 	viewer.press("<Enter>")

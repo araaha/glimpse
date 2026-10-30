@@ -165,7 +165,13 @@ func NewPlainReader(source io.ReaderAt, start, end int64) *Reader {
 }
 
 func NewReader(source io.ReaderAt, start, end int64, style Style, complete bool, underline ...Color) *Reader {
-	r := &Reader{reader: bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), 4096), offset: start, style: style, complete: complete}
+	// Long scans, such as indexing, read in large blocks. Rows and nearby searches
+	// read only what they need, which a large buffer would overshoot.
+	size := 4 << 10
+	if end-start >= 1<<20 {
+		size = 64 << 10
+	}
+	r := &Reader{reader: bufio.NewReaderSize(io.NewSectionReader(source, start, end-start), size), offset: start, style: style, complete: complete}
 	if len(underline) > 0 {
 		r.underlineColor = underline[0]
 	}

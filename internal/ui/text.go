@@ -26,34 +26,38 @@ type TextSource interface {
 // logical lines. One shared grapheme decoder drives indexing and rendering.
 // The last live cluster is provisional and reflowed when later bytes extend it.
 type Text struct {
-	source                         TextSource
-	starts                         *offsetIndex
-	lineStarts                     *offsetIndex
-	rowStyles                      *offsetIndex
-	rowUnderlines, styleUnderlines *offsetIndex
-	styleOffsets, styleValues      *offsetIndex
-	style                          content.Style
-	underlineColor                 content.Color
-	cellStarts                     []int
-	rendered                       [][]Glyph
-	indexMemory, indexQuota        int64
-	tempDir                        string // for spilled indexes; empty selects pager.TempDir
-	base                           int64
-	scanned                        int64
-	width                          int
-	indexWidth                     int // 0 when rows are unwrapped logical lines
-	nowrap                         bool
-	left                           int
-	unprintable                    string
-	overflow                       bool
-	column                         int
-	struckWidth                    int
-	open                           *scanCheckpoint
-	observedEnd                    int64
-	wideAmbiguous, policyChanged   bool
-	exhausted, finalized           bool
-	renderScratch                  []byte
-	trackStyles                    bool
+	source     TextSource
+	starts     *offsetIndex
+	lineStarts *offsetIndex
+	// Row styles are stored only where a row starts in a different style
+	// from the previous one: at rowStyleRows, with the style and underline.
+	rowStyleRows, rowStyles, rowUnderlines *offsetIndex
+	rowStyle                               content.Style // the last stored
+	rowUnderline                           content.Color
+	styleOffsets, styleValues              *offsetIndex
+	styleUnderlines                        *offsetIndex
+	style                                  content.Style
+	underlineColor                         content.Color
+	cellStarts                             []int
+	rendered                               [][]Glyph
+	indexMemory, indexQuota                int64
+	tempDir                                string // for spilled indexes; empty selects pager.TempDir
+	base                                   int64
+	scanned                                int64
+	width                                  int
+	indexWidth                             int // 0 when rows are unwrapped logical lines
+	nowrap                                 bool
+	left                                   int
+	unprintable                            string
+	overflow                               bool
+	column                                 int
+	struckWidth                            int
+	open                                   *scanCheckpoint
+	observedEnd                            int64
+	wideAmbiguous, policyChanged           bool
+	exhausted, finalized                   bool
+	renderScratch                          []byte
+	trackStyles                            bool
 }
 
 type scanCheckpoint struct {
@@ -62,11 +66,14 @@ type scanCheckpoint struct {
 	underlineColor content.Color
 	column, struck int
 	cells          []int
-	counts         [7]int
+	counts         [indexCount]int
 }
 
-func (t *Text) indexes() [7]*offsetIndex {
-	return [7]*offsetIndex{t.starts, t.lineStarts, t.rowStyles, t.styleOffsets, t.styleValues, t.rowUnderlines, t.styleUnderlines}
+// indexCount is the number of indexes sharing the metadata budget and quota.
+const indexCount = 8
+
+func (t *Text) indexes() [indexCount]*offsetIndex {
+	return [indexCount]*offsetIndex{t.starts, t.lineStarts, t.rowStyleRows, t.rowStyles, t.rowUnderlines, t.styleOffsets, t.styleValues, t.styleUnderlines}
 }
 
 func (t *Text) checkpoint() *scanCheckpoint {
@@ -88,7 +95,9 @@ func (t *Text) rewind() error {
 	t.underlineColor = saved.underlineColor
 	copy(t.cellStarts, saved.cells)
 	t.open = nil
-	return nil
+	last := t.rowStyleRows.count - 1
+	t.rowStyle, t.rowUnderline = content.Style(t.rowStyles.at(last)), content.Color(t.rowUnderlines.at(last))
+	return errors.Join(t.rowStyles.err, t.rowUnderlines.err)
 }
 
 func (t *Text) SetWideAmbiguous(wide bool) {
@@ -131,8 +140,8 @@ func NewText(source TextSource) *Text {
 }
 
 func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
-	if memory < 16<<10 || quota < 56 {
-		return nil, errors.New("metadata-budget must be at least 16384 and metadata-quota at least 56 bytes")
+	if memory < 16<<10 || quota < indexCount*8 {
+		return nil, fmt.Errorf("metadata-budget must be at least 16384 and metadata-quota at least %d bytes", indexCount*8)
 	}
 	_, trackStyles := source.(interface{ Start() int64 })
 	if retained, ok := source.(interface{ RetainsAll() bool }); ok && retained.RetainsAll() {
@@ -167,17 +176,14 @@ func (t *Text) reset(width int, base int64, initial content.Style, underline con
 	t.renderScratch = make([]byte, width+1)
 	t.struckWidth = 0
 	t.cellStarts = make([]int, width)
-	t.starts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	t.lineStarts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	t.rowStyles = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	t.styleOffsets = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	t.styleValues = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	t.rowUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	t.styleUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
-	if err := t.starts.append(base); err != nil {
+	quota := &metadataQuota{limit: t.indexQuota}
+	for _, index := range []**offsetIndex{&t.starts, &t.lineStarts, &t.rowStyleRows, &t.rowStyles, &t.rowUnderlines, &t.styleOffsets, &t.styleValues, &t.styleUnderlines} {
+		*index = newOffsetIndex(t.indexMemory/indexCount, quota, t.tempDir)
+	}
+	if err := t.storeRowStyle(0); err != nil {
 		return err
 	}
-	if err := t.rowStyles.append(int64(initial)); err != nil {
+	if err := t.starts.append(base); err != nil {
 		return err
 	}
 	if err := t.styleOffsets.append(base); err != nil {
@@ -186,13 +192,36 @@ func (t *Text) reset(width int, base int64, initial content.Style, underline con
 	if err := t.styleValues.append(int64(initial)); err != nil {
 		return err
 	}
-	if err := t.rowUnderlines.append(int64(underline)); err != nil {
-		return err
-	}
 	if err := t.styleUnderlines.append(int64(underline)); err != nil {
 		return err
 	}
 	return t.lineStarts.append(base)
+}
+
+// addRow starts a display row at offset in the current style.
+func (t *Text) addRow(offset int64) error {
+	if t.style != t.rowStyle || t.underlineColor != t.rowUnderline {
+		if err := t.storeRowStyle(t.starts.count); err != nil {
+			return err
+		}
+	}
+	return t.starts.append(offset)
+}
+
+func (t *Text) storeRowStyle(row int) error {
+	t.rowStyle, t.rowUnderline = t.style, t.underlineColor
+	return errors.Join(t.rowStyleRows.append(int64(row)), t.rowStyles.append(int64(t.style)), t.rowUnderlines.append(int64(t.underlineColor)))
+}
+
+// rowStyleIndex returns the stored row style in effect at row.
+func (t *Text) rowStyleIndex(row int) int {
+	return max(0, sort.Search(t.rowStyleRows.count, func(i int) bool { return t.rowStyleRows.at(i) > int64(row) })-1)
+}
+
+// styleOfRow returns the style and underline color a row starts in.
+func (t *Text) styleOfRow(row int) (content.Style, content.Color) {
+	i := t.rowStyleIndex(row)
+	return content.Style(t.rowStyles.at(i)), content.Color(t.rowUnderlines.at(i))
 }
 
 func (t *Text) styleAt(offset int64) (content.Style, content.Color) {
@@ -397,13 +426,7 @@ func (t *Text) addASCII(data []byte, offset int64) error {
 		}
 		for count > 0 {
 			if t.column == t.width {
-				if err := t.starts.append(offset); err != nil {
-					return err
-				}
-				if err := t.rowStyles.append(int64(t.style)); err != nil {
-					return err
-				}
-				if err := t.rowUnderlines.append(int64(t.underlineColor)); err != nil {
+				if err := t.addRow(offset); err != nil {
 					return err
 				}
 				t.column = 0
@@ -433,16 +456,10 @@ func (t *Text) addASCII(data []byte, offset int64) error {
 func (t *Text) addCluster(cluster content.Cluster) error {
 	r, offset, size := cluster.Rune, cluster.Start, int(cluster.End-cluster.Start)
 	if r == '\n' {
-		if err := t.starts.append(offset + int64(size)); err != nil {
+		if err := t.addRow(offset + int64(size)); err != nil {
 			return err
 		}
 		if err := t.lineStarts.append(offset + int64(size)); err != nil {
-			return err
-		}
-		if err := t.rowStyles.append(int64(t.style)); err != nil {
-			return err
-		}
-		if err := t.rowUnderlines.append(int64(t.underlineColor)); err != nil {
 			return err
 		}
 		t.column = 0
@@ -474,13 +491,7 @@ func (t *Text) addCluster(cluster content.Cluster) error {
 	}
 	t.struckWidth = 0
 	if w > 0 && t.column > 0 && t.column+w > t.width {
-		if err := t.starts.append(offset); err != nil {
-			return err
-		}
-		if err := t.rowStyles.append(int64(t.style)); err != nil {
-			return err
-		}
-		if err := t.rowUnderlines.append(int64(t.underlineColor)); err != nil {
+		if err := t.addRow(offset); err != nil {
 			return err
 		}
 		t.column = 0
@@ -545,6 +556,7 @@ func (t *Text) LineRow(line int) int {
 func (t *Text) Lines(top, height int) ([]string, error) {
 	var lines []string
 	t.rendered, t.overflow = nil, false
+	styleIndex := t.rowStyleIndex(top)
 	for row := max(0, top); row < t.RowCount() && len(lines) < height; row++ {
 		end := t.scanned
 		if row+1 < t.starts.count {
@@ -554,9 +566,12 @@ func (t *Text) Lines(top, height int) ([]string, error) {
 		if t.starts.err != nil {
 			return nil, t.starts.err
 		}
-		style := content.Style(t.rowStyles.at(row))
-		underline := content.Color(t.rowUnderlines.at(row))
-		if err := errors.Join(t.rowStyles.err, t.rowUnderlines.err); err != nil {
+		for styleIndex+1 < t.rowStyleRows.count && t.rowStyleRows.at(styleIndex+1) <= int64(row) {
+			styleIndex++
+		}
+		style := content.Style(t.rowStyles.at(styleIndex))
+		underline := content.Color(t.rowUnderlines.at(styleIndex))
+		if err := errors.Join(t.rowStyleRows.err, t.rowStyles.err, t.rowUnderlines.err); err != nil {
 			return nil, err
 		}
 		glyphs, err := t.readStyledRow(start, end, style, underline)
@@ -589,7 +604,8 @@ func (t *Text) ColumnAt(offset int64) int {
 	if offset-start > columnScanLimit {
 		return -1
 	}
-	reader := content.NewGraphemeReader(t.source, start, offset, content.Style(t.rowStyles.at(row)), true, content.Color(t.rowUnderlines.at(row)))
+	style, underline := t.styleOfRow(row)
+	reader := content.NewGraphemeReader(t.source, start, offset, style, true, underline)
 	column := 0
 	for {
 		token, err := reader.Next()
