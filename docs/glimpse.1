@@ -346,13 +346,17 @@ Settings are read from
 (usually
 .IR ~/.config/glimpse/glimpse.toml ).
 Options override environment variables, which override the file.
-Every setting can be given as an environment variable named
+Every setting that has an option can be given as an environment variable
+named
 .B GLIMPSE_
 followed by its key in upper case with dots and hyphens replaced by
 underscores, for example
 .B GLIMPSE_CMDHEIGHT=1
 or
-.BR GLIMPSE_STATUSLINE_STYLES_MODE_BG=red .
+.BR GLIMPSE_SEARCH_SMART_CASE=true .
+Other keys, such as
+.BR statusline.styles.mode.bg ,
+are read from the file only.
 .PP
 Top-level keys are
 .BR cmdheight ,

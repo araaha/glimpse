@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
-	"sort"
 	"strings"
 
 	"glimpse/internal/app"
@@ -66,49 +65,16 @@ func writeCompletion(root *cobra.Command, out io.Writer, shell string) error {
 	return fmt.Errorf("unknown completion shell %q (use bash, zsh, fish, or powershell)", shell)
 }
 
-// knownKey reports whether a dotted config key is read by glimpse. Tables that
-// are validated by their own consumers (keybinds, statusline) accept any key.
-func knownKey(key string) bool {
-	for _, prefix := range []string{"keybinds.", "statusline."} {
-		if strings.HasPrefix(key, prefix) {
-			return true
-		}
-	}
-	switch key {
-	case "cmdheight", "chunk-size", "follow", "follow-name", "jump-target",
-		"display.ambiguous-width", "display.wrap", "display.line-numbers", "display.hex-colors", "run",
-		"display.line-number-style.fg", "display.line-number-style.bg",
-		"display.unprintable.char", "display.unprintable.fg", "display.unprintable.bg",
-		"storage.memory-budget", "storage.spool-quota", "storage.metadata-budget",
-		"storage.metadata-quota", "storage.retention", "storage.spool-dir",
-		"search.smart-case", "search.ignore-case", "search.case-sensitive",
-		"search.incremental", "search.highlight", "search.regex",
-		"search.highlight-style.fg", "search.highlight-style.bg":
-		return true
-	}
-	return false
-}
-
 // checkConfig validates the configuration as startup does, without a terminal
 // or input, and additionally rejects keys that startup would silently ignore.
 func checkConfig(config *viper.Viper, cmd *cobra.Command) error {
 	used := config.ConfigFileUsed()
-	if used != "" {
-		file := viper.New()
-		file.SetConfigFile(used)
-		if err := file.ReadInConfig(); err != nil {
-			return fmt.Errorf("read config: %w", err)
-		}
-		var unknown []string
-		for _, key := range file.AllKeys() {
-			if !knownKey(key) {
-				unknown = append(unknown, key)
-			}
-		}
-		if len(unknown) > 0 {
-			sort.Strings(unknown)
-			return fmt.Errorf("%s: unknown option(s): %s", used, strings.Join(unknown, ", "))
-		}
+	cfg, err := decodeConfig(config)
+	if err != nil {
+		return err
+	}
+	if unknown := cfg.unknownKeys(); len(unknown) > 0 {
+		return fmt.Errorf("%s: unknown option(s): %s", used, strings.Join(unknown, ", "))
 	}
 	options, err := readOptions(config, cmd)
 	if err != nil {

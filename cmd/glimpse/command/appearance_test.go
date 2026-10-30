@@ -50,28 +50,10 @@ func TestAppearanceConfiguration(t *testing.T) {
 				t.Fatalf("empty separator = %q", got)
 			}
 		}},
-		{name: "environment overrides config", config: "[statusline.styles.mode]\nbg = '#112233'\n[search.highlight-style]\nbg = '#010203'", env: map[string]string{"GLIMPSE_STATUSLINE_STYLES_MODE_BG": "#aabbcc", "GLIMPSE_SEARCH_HIGHLIGHT_STYLE_BG": "#445566", "GLIMPSE_STATUSLINE_SEPARATOR_CLOSE": "]"}, check: func(t *testing.T, a *app.App) {
+		{name: "environment overrides config", config: "[statusline.styles.mode]\nbg = '#112233'\n[search.highlight-style]\nbg = '#010203'", env: map[string]string{"GLIMPSE_STATUSLINE_STYLES_MODE_BG": "#aabbcc", "GLIMPSE_SEARCH_HIGHLIGHT_STYLE_BG": "#445566"}, check: func(t *testing.T, a *app.App) {
 			bar := a.Statusline.Format(ui.StatusState{Mode: "VIEW"}, 40, false)
 			if bar.Spans[0].Style.GetBackground() != color.NewHexColor(0xaabbcc) || a.SearchHighlight.GetBackground() != color.NewHexColor(0x445566) {
 				t.Fatal("environment colors did not override TOML")
-			}
-			if !strings.HasPrefix(bar.Text(), " VIEW ]") {
-				t.Fatalf("environment separator = %q", bar.Text())
-			}
-		}},
-		{name: "environment-only styles", env: map[string]string{"GLIMPSE_STATUSLINE_STYLES_FILENAME_FG": "#123456", "GLIMPSE_SEARCH_HIGHLIGHT_STYLE_FG": "#abcdef"}, check: func(t *testing.T, a *app.App) {
-			if a.SearchHighlight.GetForeground() != color.NewHexColor(0xabcdef) {
-				t.Fatal("environment-only highlight ignored")
-			}
-			for _, span := range a.Statusline.Format(ui.StatusState{Filename: "file"}, 40, false).Spans {
-				if span.Section == ui.StatusFilename && span.Style.GetForeground() != color.NewHexColor(0x123456) {
-					t.Fatal("environment-only section color ignored")
-				}
-			}
-		}},
-		{name: "environment section lists", env: map[string]string{"GLIMPSE_STATUSLINE_LEFT": "MODE", "GLIMPSE_STATUSLINE_RIGHT": "LINE_NUMBERS"}, check: func(t *testing.T, a *app.App) {
-			if a.Statusline.Has(ui.StatusFilename) || a.Statusline.Has(ui.StatusSearchResults) {
-				t.Fatal("environment lists ignored")
 			}
 		}},
 		{name: "filename style", config: "[statusline]\nfilename-style = 'short'", check: func(t *testing.T, a *app.App) {
@@ -85,8 +67,8 @@ func TestAppearanceConfiguration(t *testing.T) {
 			}
 		}},
 		{name: "unknown filename style", config: "[statusline]\nfilename-style = 'long'", wantErr: "filename-style must be tail, short, or full"},
-		{name: "filename style type", config: "[statusline]\nfilename-style = 1", wantErr: "statusline.filename-style must be a string"},
-		{name: "mode styles", config: "[statusline.styles.mode]\nbg = '#112233'\nsearch = { bg = '#445566' }\n[statusline.styles.mode.follow]\nfg = '#778899'\n", env: map[string]string{"GLIMPSE_STATUSLINE_STYLES_MODE_HELP_BG": "#aabbcc"}, check: func(t *testing.T, a *app.App) {
+		{name: "filename style type", config: "[statusline]\nfilename-style = 1", wantErr: "'statusline.filename-style' expected type 'string'"},
+		{name: "mode styles", config: "[statusline.styles.mode]\nbg = '#112233'\nsearch = { bg = '#445566' }\n[statusline.styles.mode.follow]\nfg = '#778899'\n[statusline.styles.mode.help]\nbg = '#aabbcc'\n", check: func(t *testing.T, a *app.App) {
 			background := func(mode string) color.Color {
 				return a.Statusline.Format(ui.StatusState{Mode: mode}, 40, false).Spans[0].Style.GetBackground()
 			}
@@ -103,15 +85,15 @@ func TestAppearanceConfiguration(t *testing.T) {
 		{name: "unknown section", config: "[statusline]\nleft = ['typo']", wantErr: "unknown statusline section"},
 		{name: "duplicate section", config: "[statusline]\nleft = ['mode']\nright = ['MODE']", wantErr: "duplicate statusline section"},
 		{name: "scalar section list", config: "[statusline]\nleft = 'mode'", wantErr: "must be an array"},
-		{name: "non-string section", config: "[statusline]\nleft = [1]", wantErr: "only section names"},
+		{name: "non-string section", config: "[statusline]\nleft = [1]", wantErr: "'statusline.left[0]' expected type 'string'"},
 		{name: "invalid bar color", config: "[statusline]\nbg = 'navy'", wantErr: "#RRGGBB"},
 		{name: "invalid section color", config: "[statusline.styles.mode]\nbg = '#123'", wantErr: "#RRGGBB"},
 		{name: "invalid highlight color", config: "[search.highlight-style]\nfg = '#ghijkl'", wantErr: "#RRGGBB"},
-		{name: "numeric color", config: "[statusline]\nfg = 123", wantErr: "must be a string"},
+		{name: "numeric color", config: "[statusline]\nfg = 123", wantErr: "'statusline.fg' expected type 'string'"},
 		{name: "unknown style", config: "[statusline.styles.typo]\nfg = '#ffffff'", wantErr: "unknown statusline section"},
-		{name: "removed separator option", config: "[statusline]\nseparator = '|'", wantErr: "unknown statusline option"},
-		{name: "unknown color property", config: "[search.highlight-style]\nforeground = '#ffffff'", wantErr: "unknown color option"},
-		{name: "non-table styles", config: "[statusline]\nstyles = 1", wantErr: "must be a table"},
+		{name: "removed separator option", config: "[statusline]\nseparator = '|'", wantErr: "'statusline' has invalid keys: separator"},
+		{name: "unknown color property", config: "[search.highlight-style]\nforeground = '#ffffff'", wantErr: "'search.highlight-style' has invalid keys: foreground"},
+		{name: "non-table styles", config: "[statusline]\nstyles = 1", wantErr: "'statusline.styles' expected type"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
