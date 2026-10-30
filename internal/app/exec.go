@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"glimpse/internal/keybind"
 
@@ -99,8 +98,7 @@ func runForeground(screen tcell.Screen, cmd *exec.Cmd) error {
 // failures; glimpse does not wait for it. Reports that find failures full are
 // dropped rather than blocking.
 func runBackground(cmd *exec.Cmd, label string, failures chan<- string) {
-	// A separate process group keeps terminal signals for glimpse alone.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	detach(cmd)
 	report := func(err error) {
 		select {
 		case failures <- commandFailure(label, err):
