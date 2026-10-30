@@ -142,8 +142,8 @@ func (s *session) openPrompt(command keybind.Command) (quit bool) {
 		s.search.prompt = newPrompt(false, s.search.commandHistory.Entries)
 		s.search.prompt.command = true
 	}
-	s.search.prompt.origin = s.text.Offset(s.view.top)
-	s.view.follow, s.view.bottom = false, false
+	// Opening a prompt keeps following; only a match or a jump moves the view.
+	s.search.prompt.origin, s.search.prompt.follow = s.text.Offset(s.view.top), s.view.follow
 	s.Keys.Cancel()
 	s.SearchKeys.Cancel()
 	s.dirty = true
@@ -287,7 +287,7 @@ func (s *session) applyPrompt(commands []keybind.Command) (quit bool) {
 func (s *session) cancelPrompt() {
 	s.clearPending()
 	s.search.stop()
-	s.view.top = s.text.RowAt(s.search.prompt.origin)
+	s.returnToOrigin(s.search.prompt)
 	s.search.restore()
 	s.search.prompt, s.search.message = nil, ""
 	s.SearchKeys.Cancel()
@@ -318,7 +318,6 @@ func (s *session) accept() (quit bool) {
 		return false
 	}
 	s.search.query, s.search.backward, s.search.matched = query, p.backward, false
-	s.view.follow, s.view.bottom = false, false
 	s.startSearch(p.origin, p.backward, true)
 	return false
 }
@@ -336,7 +335,7 @@ func (s *session) execute(input string) (quit bool) {
 	s.search.message = result.message
 	switch {
 	case result.line > 0:
-		s.search.matched = false
+		s.search.matched, s.view.follow = false, false
 		s.clearPending()
 		s.pendingLine = result.line
 	case result.action == keybind.Bottom:
@@ -367,7 +366,7 @@ func (s *session) preview() {
 	if query == "" {
 		s.search.restore()
 		s.search.message = ""
-		s.view.top = s.text.RowAt(p.origin)
+		s.returnToOrigin(p)
 		return
 	}
 	if s.query(query).Validate() != nil {
@@ -378,4 +377,15 @@ func (s *session) preview() {
 	}
 	s.search.query, s.search.backward, s.search.matched = query, p.backward, false
 	s.startSearch(p.origin, p.backward, true)
+}
+
+// returnToOrigin undoes an incremental preview: back to the row the prompt
+// opened on, or to the end if the view was following.
+func (s *session) returnToOrigin(p *prompt) {
+	s.view.follow = p.follow
+	if p.follow {
+		s.view.bottom = true
+		return
+	}
+	s.view.top = s.text.RowAt(p.origin)
 }

@@ -17,6 +17,7 @@ type prompt struct {
 	backward     bool
 	command      bool
 	origin       int64
+	follow       bool // the view was following when the prompt opened
 	history      []string
 	historyIndex int
 	draft        string

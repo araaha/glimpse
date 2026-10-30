@@ -107,3 +107,37 @@ func TestRunWatchesByDescriptorByDefault(t *testing.T) {
 	viewer.press("q")
 	viewer.expectExit(t)
 }
+
+func TestRunPromptsKeepFollowing(t *testing.T) {
+	path, file := openFollowed(t, "one\ntwo\nthree\nfour\nfive\n")
+	viewer := startReaderViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch, Follow: true, IncrementalSearch: true}, file, path, 20, 5, false)
+	following := func(last string) {
+		t.Helper()
+		waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+			return frame.Follow && !frame.SearchActive && len(frame.Lines) == 3 && frame.Lines[2] == last
+		})
+	}
+	// A search that finds nothing leaves the view, and following, alone.
+	viewer.press("/")
+	viewer.typeText("missing")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.Search == "Pattern not found: missing" })
+	writeLog(t, path, "six\n", os.O_APPEND)
+	following("six")
+	// Escape undoes an incremental match and resumes following.
+	viewer.press("/")
+	viewer.typeText("two")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.Follow && firstFrameLine("two")(frame) })
+	viewer.press("<Esc>")
+	following("six")
+	// An accepted match stops following.
+	viewer.press("/")
+	viewer.typeText("two")
+	viewer.press("<Enter>")
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.SearchActive && firstFrameLine("two")(frame) })
+	if frame.Follow {
+		t.Fatal("a search match kept following")
+	}
+	viewer.press("q")
+	viewer.expectExit(t)
+}

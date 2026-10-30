@@ -56,10 +56,12 @@ func TestRunStatuslineModesCountsAndLogicalLines(t *testing.T) {
 	}
 	viewer.press(":")
 	frame = waitFrame(t, viewer.frames, searchFrame(":", true))
-	if frame.StatusState.Mode != "VIEW" {
-		t.Fatal("command prompt incorrectly entered SEARCH mode")
+	if frame.StatusState.Mode != "FOLLOW" || !frame.Follow {
+		t.Fatalf("command prompt left follow mode: %s", frame.StatusState.Mode)
 	}
-	viewer.press("<Esc>", "q")
+	viewer.press("<Esc>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.SearchActive && frame.Follow })
+	viewer.press("q")
 	viewer.expectExit(t)
 }
 
