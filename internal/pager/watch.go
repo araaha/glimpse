@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -81,7 +82,17 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 				d.setWatchStatus("")
 			}
 			if info, err := current.Stat(); named != nil && (err != nil || !os.SameFile(info, named)) {
-				replacement, err := os.Open(path)
+				// Opening a FIFO would block until a writer appears, and
+				// cancellation cannot interrupt the open.
+				if !named.Mode().IsRegular() {
+					if byName {
+						d.setWatchStatus(fmt.Sprintf("%s: not a regular file; waiting for it to return", path))
+					}
+					continue
+				}
+				// Non-blocking guards against a FIFO renamed in after the stat;
+				// it does not affect reads of a regular file.
+				replacement, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 				if err != nil {
 					if byName {
 						d.setWatchStatus(fmt.Sprintf("%s: %v; waiting for it to return", path, unwrapPathError(err)))
