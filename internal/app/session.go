@@ -216,6 +216,17 @@ func (s *session) updateText() error {
 	if err := s.reload(); err != nil {
 		return err
 	}
+	// Size the gutter first: the width it leaves is the width to index at, and
+	// the index about to be replaced still knows how many lines there are.
+	if s.LineNumbers {
+		lines := int64(s.text.LineCount())
+		if total, ok := s.lineTotals.total(s.lineKey()); ok {
+			lines = total // Size the gutter once instead of restarting the index as it grows.
+		}
+		s.gutterDigits = max(s.gutterDigits, len(strconv.FormatInt(lines, 10)))
+	} else {
+		s.gutterDigits = 0
+	}
 	anchor := s.text.Offset(s.view.top)
 	s.text.SetWrap(s.Wrap)
 	reflow := s.indexedWidth != s.textWidth() || s.indexedWrap != s.Wrap
@@ -231,15 +242,6 @@ func (s *session) updateText() error {
 			s.view.top = s.text.RowAt(anchor)
 		}
 		s.dirty = true
-	}
-	if s.LineNumbers {
-		lines := int64(s.text.LineCount())
-		if total, ok := s.lineTotals.total(s.lineKey()); ok {
-			lines = total // Size the gutter once instead of restarting the index as it grows.
-		}
-		s.gutterDigits = max(s.gutterDigits, len(strconv.FormatInt(lines, 10)))
-	} else {
-		s.gutterDigits = 0
 	}
 	pending := s.indexing()
 	if s.pendingLine > 0 && (s.pendingLine <= s.text.LineCount() || !pending) {

@@ -29,7 +29,8 @@ type offsetIndex struct {
 
 func newOffsetIndex(memory int64, quota *metadataQuota, dir string) *offsetIndex {
 	limit := int(max(1, (memory-1024)/8))
-	return &offsetIndex{tail: make([]int64, 0, limit), limit: limit, quota: quota, pageOffset: -1, dir: dir}
+	// The tail grows on demand, so a small input does not allocate its budget.
+	return &offsetIndex{tail: make([]int64, 0, min(limit, 1024)), limit: limit, quota: quota, pageOffset: -1, dir: dir}
 }
 
 func (i *offsetIndex) append(value int64) error {

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -58,6 +59,7 @@ type Text struct {
 	exhausted, finalized                   bool
 	renderScratch                          []byte
 	trackStyles                            bool
+	reflow                                 *reflowJob // laying out the previous index's lines in parallel
 }
 
 type scanCheckpoint struct {
@@ -151,6 +153,7 @@ func NewTextWithLimits(source TextSource, memory, quota int64) (*Text, error) {
 }
 
 func (t *Text) Close() error {
+	t.stopReflow()
 	var result error
 	for _, index := range t.indexes() {
 		if index != nil {
@@ -307,7 +310,12 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 	if t.nowrap {
 		key = 0
 	}
+	var deadline time.Time
+	if budget > 0 {
+		deadline = time.Now().Add(budget)
+	}
 	if t.indexWidth != key || t.starts == nil || t.base != base || t.policyChanged {
+		plan := t.planReflow(base)
 		initial, underline := t.styleAt(base)
 		if t.styleOffsets != nil {
 			if err := errors.Join(t.styleOffsets.err, t.styleValues.err, t.styleUnderlines.err); err != nil {
@@ -317,6 +325,9 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 		if err := t.reset(width, base, initial, underline); err != nil {
 			return err
 		}
+		if plan != nil {
+			t.startReflow(plan, width)
+		}
 	}
 	for _, index := range t.indexes() {
 		if index.err != nil {
@@ -325,6 +336,13 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 	}
 	if t.width != width {
 		t.width, t.renderScratch = width, make([]byte, width+1)
+	}
+	if t.reflow != nil {
+		done, err := t.mergeReflow(deadline)
+		if err != nil || !done {
+			t.exhausted, t.finalized = false, false
+			return err
+		}
 	}
 	end := t.source.Len()
 	if t.open != nil {
@@ -336,16 +354,25 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 		}
 	}
 	reader := content.NewGraphemeReader(t.source, t.scanned, end, t.style, complete, t.underlineColor)
-	var deadline time.Time
-	if budget > 0 {
-		deadline = time.Now().Add(budget)
+	if err := t.scan(context.Background(), reader, complete, deadline); err != nil {
+		return err
 	}
+	t.observedEnd = end
+	return nil
+}
+
+// scan indexes what reader decodes until it is exhausted, the deadline (if
+// any) passes, or ctx is canceled.
+func (t *Text) scan(ctx context.Context, reader *content.GraphemeReader, complete bool, deadline time.Time) error {
 	steps := 0
 	t.exhausted, t.finalized = false, false
 	for {
-		if budget > 0 && steps >= 32 {
-			if !time.Now().Before(deadline) {
-				break
+		if steps >= 32 {
+			if !deadline.IsZero() && !time.Now().Before(deadline) {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 			steps = 0
 		}
@@ -374,7 +401,7 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 		if errors.Is(err, io.EOF) || errors.Is(err, content.ErrIncomplete) || errors.Is(err, pager.ErrEvicted) || errors.Is(err, pager.ErrTruncated) {
 			t.exhausted = true
 			t.finalized = complete
-			break
+			return nil
 		}
 		if err != nil {
 			return err
@@ -395,8 +422,6 @@ func (t *Text) UpdateFor(width int, complete bool, budget time.Duration) error {
 		}
 		t.scanned = token.End
 	}
-	t.observedEnd = end
-	return nil
 }
 
 func (t *Text) LineCount() int {
