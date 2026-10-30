@@ -59,6 +59,12 @@ func (s *searchState) stop() {
 
 func (s *searchState) close() { s.stop(); s.workers.Wait() }
 
+// restore returns to the search that was current when the prompt opened.
+func (s *searchState) restore() {
+	o := s.original
+	s.query, s.backward, s.match, s.matched = o.query, o.backward, o.match, o.matched
+}
+
 func (s *searchState) begin(backward bool) {
 	s.stop()
 	s.original = searchAnchor{s.query, s.backward, s.match, s.matched}
