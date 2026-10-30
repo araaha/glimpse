@@ -145,7 +145,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Int64("metadata-budget", 8<<20, "resident row/line index byte budget")
 	root.Flags().Int64("metadata-quota", 256<<20, "maximum row/line index bytes")
 	root.Flags().String("retention", "lossless", "stream retention: lossless or rolling (explicit history loss)")
-	root.Flags().String("spool-dir", "", "directory for private temporary input spools")
+	root.Flags().String("spool-dir", "", "directory for private spool and index files (default $XDG_CACHE_HOME/glimpse)")
 	root.Flags().Int("ambiguous-width", 1, "East Asian ambiguous character width: 1 or 2 cells")
 	root.Flags().BoolP("line-numbers", "N", false, "show a line number gutter (toggle with #)")
 	root.Flags().Bool("hex-colors", false, "color #RRGGBB codes with their own color in truecolor terminals (toggle with R)")

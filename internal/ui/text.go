@@ -37,6 +37,7 @@ type Text struct {
 	cellStarts                     []int
 	rendered                       [][]Glyph
 	indexMemory, indexQuota        int64
+	tempDir                        string // for spilled indexes; empty selects pager.TempDir
 	base                           int64
 	scanned                        int64
 	width                          int
@@ -104,6 +105,9 @@ func (t *Text) SetWrap(wrap bool) {
 	}
 }
 
+// SetTempDir sets the directory for indexes spilled past the memory budget.
+func (t *Text) SetTempDir(dir string) { t.tempDir = dir }
+
 // SetUnprintable sets the one-cell text shown for unprintable characters;
 // empty keeps U+FFFD. Layout is unchanged because both are one cell wide.
 func (t *Text) SetUnprintable(text string) { t.unprintable = text }
@@ -163,13 +167,13 @@ func (t *Text) reset(width int, base int64, initial content.Style, underline con
 	t.renderScratch = make([]byte, width+1)
 	t.struckWidth = 0
 	t.cellStarts = make([]int, width)
-	t.starts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
-	t.lineStarts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
-	t.rowStyles = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
-	t.styleOffsets = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
-	t.styleValues = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
-	t.rowUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
-	t.styleUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7)
+	t.starts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
+	t.lineStarts = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
+	t.rowStyles = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
+	t.styleOffsets = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
+	t.styleValues = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
+	t.rowUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
+	t.styleUnderlines = newOffsetIndex(t.indexMemory/7, t.indexQuota/7, t.tempDir)
 	if err := t.starts.append(base); err != nil {
 		return err
 	}

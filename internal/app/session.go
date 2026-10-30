@@ -122,6 +122,7 @@ func (s *session) newText() (*ui.Text, error) {
 	}
 	text.SetWideAmbiguous(s.wideAmbiguous)
 	text.SetUnprintable(s.unprintableChar)
+	text.SetTempDir(s.tempDir)
 	return text, nil
 }
 

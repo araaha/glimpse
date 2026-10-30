@@ -29,6 +29,7 @@ func (unsuspendedScreen) Suspend() error { return nil }
 func (unsuspendedScreen) Resume() error  { return nil }
 
 type testViewer struct {
+	app     *App
 	screen  tcell.Screen
 	frames  <-chan ui.Frame
 	result  <-chan error
@@ -78,7 +79,7 @@ func startReaderViewer(t *testing.T, options Options, reader io.ReadCloser, name
 	waitFrame(t, recorder.frames, func(frame ui.Frame) bool {
 		return (len(frame.Lines) > 0 || empty) && !frame.Reading
 	})
-	return testViewer{screen: screen, frames: recorder.frames, result: result}
+	return testViewer{app: application, screen: screen, frames: recorder.frames, result: result}
 }
 
 func (v testViewer) press(keys ...string) {
@@ -400,32 +401,22 @@ func TestRunQuotaCommandResumesIngestion(t *testing.T) {
 	viewer.expectExit(t)
 }
 
-func TestRunReportsSpoolCleanupFailure(t *testing.T) {
+func TestRunSpoolIsUnlinked(t *testing.T) {
 	dir := t.TempDir()
 	viewer := startTestViewer(t, Options{ChunkSize: 32, Storage: pager.StorageOptions{MemoryBudget: 128, SpoolQuota: 1024, SpoolDir: dir}}, strings.Repeat("x", 300), 20, 3)
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
+	if memory := viewer.app.Document.MemoryBytes(); memory >= 300 {
+		t.Fatalf("input was not spooled: %d bytes in memory", memory)
+	}
+	// The spool is unlinked at once, so even a killed viewer leaves nothing.
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("spool files = %v", entries)
 	}
-	path := filepath.Join(dir, entries[0].Name())
-	if err := os.Rename(path, path+"-moved"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(path, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(path, "child"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	viewer.press("G")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return len(frame.Lines) > 0 && strings.HasPrefix(frame.Lines[len(frame.Lines)-1], "x")
+	})
 	viewer.press("q")
-	select {
-	case err := <-viewer.result:
-		if err == nil {
-			t.Fatal("cleanup failure silently ignored")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("cleanup did not finish")
-	}
+	viewer.expectExit(t)
 }
 
 func TestSearchResponseRejectsEvictedOffset(t *testing.T) {

@@ -2,9 +2,9 @@ package ui
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"os"
+
+	"glimpse/internal/pager"
 )
 
 // offsetIndex has a bounded in-memory tail plus one 1 KiB read page. Older
@@ -15,16 +15,17 @@ type offsetIndex struct {
 	limit          int
 	quota          int64
 	count, flushed int
-	file           *os.File
+	file           *pager.TempFile
+	dir            string // where the file is created; empty selects pager.TempDir
 	page           [1024]byte
 	pageOffset     int64
 	pageLength     int
 	err            error
 }
 
-func newOffsetIndex(memory, quota int64) *offsetIndex {
+func newOffsetIndex(memory, quota int64, dir string) *offsetIndex {
 	limit := int(max(1, (memory-1024)/8))
-	return &offsetIndex{tail: make([]int64, 0, limit), limit: limit, quota: quota, pageOffset: -1}
+	return &offsetIndex{tail: make([]int64, 0, limit), limit: limit, quota: quota, pageOffset: -1, dir: dir}
 }
 
 func (i *offsetIndex) append(value int64) error {
@@ -37,7 +38,7 @@ func (i *offsetIndex) append(value int64) error {
 	}
 	if len(i.tail) == i.limit {
 		if i.file == nil {
-			i.file, i.err = os.CreateTemp("", "glimpse-index-*")
+			i.file, i.err = pager.CreateTemp(i.dir, "glimpse-index-*")
 			if i.err != nil {
 				return i.err
 			}
@@ -96,11 +97,9 @@ func (i *offsetIndex) close() error {
 	if i.file == nil {
 		return nil
 	}
-	name := i.file.Name()
 	err := i.file.Close()
-	removeErr := os.Remove(name)
 	i.file = nil
-	return errors.Join(err, removeErr)
+	return err
 }
 
 func (i *offsetIndex) truncate(count int) error {

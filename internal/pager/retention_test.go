@@ -33,20 +33,16 @@ func TestLosslessSpillAndCleanup(t *testing.T) {
 	if n, err := s.ReadAt(got, 0); n != len(want) || err != nil || string(got) != want {
 		t.Fatalf("spooled input = %d bytes, %v", n, err)
 	}
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
+	// The spool is unlinked at once, so even a killed process leaves nothing.
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("spool entries = %v", entries)
 	}
-	info, _ := entries[0].Info()
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("spool permissions = %v", info.Mode())
+	info, err := s.spool.Stat()
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("spool permissions = %v, %v", info.Mode(), err)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
-	}
-	entries, _ = os.ReadDir(dir)
-	if len(entries) != 0 {
-		t.Fatal("spool leaked after close")
 	}
 }
 

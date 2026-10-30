@@ -145,7 +145,10 @@ keeps only the most recent
 bytes of a stream, explicitly discarding older history.
 .TP
 .BI \-\-spool\-dir " DIR"
-Directory for the private spool file (default: the system temporary directory).
+Directory for the private spool and spilled index files (default:
+.IR $XDG_CACHE_HOME/glimpse ,
+else the system temporary directory).
+The files are unlinked as soon as they are created, so they never outlive glimpse.
 .TP
 .BI \-\-metadata\-budget " BYTES"
 Row and line index bytes kept in memory (default 8 MiB).
@@ -525,8 +528,11 @@ Location of the configuration directory.
 .B XDG_DATA_HOME
 Location of the search and command histories.
 .TP
+.B XDG_CACHE_HOME
+Location of the default spool directory.
+.TP
 .B TMPDIR
-Directory for spool and index temporary files.
+Spool directory when the cache directory is unavailable.
 .SH FILES
 .TP
 .I $XDG_CONFIG_HOME/glimpse/glimpse.toml

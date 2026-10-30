@@ -11,7 +11,8 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// SIGHUP arrives when the terminal closes.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	if err := command.NewRoot().ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)

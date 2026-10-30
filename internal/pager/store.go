@@ -37,7 +37,7 @@ type Store struct {
 	chunks                 [][]byte
 	length, base, resident int64
 	options                StorageOptions
-	spool                  *os.File
+	spool                  *TempFile
 	external               io.ReaderAt
 	externalOffset         int64
 	ring                   []byte
@@ -131,14 +131,13 @@ func (s *Store) Generation() (int64, string) {
 }
 
 func (s *Store) spill() error {
-	file, err := os.CreateTemp(s.options.SpoolDir, "glimpse-spool-*")
+	file, err := CreateTemp(s.options.SpoolDir, "glimpse-spool-*")
 	if err != nil {
 		return fmt.Errorf("create input spool: %w", err)
 	}
 	for _, chunk := range s.chunks {
 		if _, err := file.Write(chunk); err != nil {
 			file.Close()
-			os.Remove(file.Name())
 			return fmt.Errorf("write input spool: %w", err)
 		}
 	}
@@ -346,8 +345,5 @@ func (s *Store) Close() error {
 	if s.spool == nil {
 		return nil
 	}
-	name := s.spool.Name()
-	err := s.spool.Close()
-	removeErr := os.Remove(name)
-	return errors.Join(err, removeErr)
+	return s.spool.Close()
 }

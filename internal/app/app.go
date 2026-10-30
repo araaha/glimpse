@@ -67,6 +67,7 @@ type App struct {
 	LineNumberStyle               tcell.Style
 	UnprintableStyle              tcell.Style
 	unprintableChar               string
+	tempDir                       string // spool-dir, also used for spilled indexes
 	FilenameStyle                 string // statusline filename style: full, short, or tail
 	JumpTarget                    JumpTarget
 	runs                          map[keybind.Action]RunCommand
@@ -161,6 +162,7 @@ func New(options Options) (*App, error) {
 		HexColors:         options.HexColors,
 		metadataBudget:    options.MetadataBudget,
 		metadataQuota:     options.MetadataQuota,
+		tempDir:           options.Storage.SpoolDir,
 		wideAmbiguous:     options.AmbiguousWidth == 2,
 		follow:            options.Follow,
 		followName:        options.FollowName,
