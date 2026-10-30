@@ -30,6 +30,13 @@ When standard output is not a terminal,
 copies its input unchanged, like
 .BR cat (1).
 Keyboard input is read from the controlling terminal, so piped input works.
+While piped input is still silent,
+.B glimpse
+waits up to half a second before taking over the terminal, and for as long
+as another process has turned terminal echo off, so that a password prompt
+such as the one in
+.B sudo cmd | glimpse
+can be answered first.
 .SH OPTIONS
 .SS Viewing
 .TP

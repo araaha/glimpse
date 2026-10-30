@@ -69,6 +69,9 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if checkTerminal != nil {
+				awaitPipedPrompt(cmd.Context(), input)
+			}
 			return run(cmd.Context(), application, input, name)
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
