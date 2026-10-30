@@ -74,6 +74,12 @@ func checkChunks(t testing.TB, input, query string, smart, ignore bool, size int
 			t.Fatal(err)
 		}
 		checkChunkCounts(t, grown, 0, source.Len(), want)
+		// A shorter snapshot is a rewrite: nothing of the longer one is reused.
+		shrunk, err := UpdateChunks(ctx, prefix, chunks, 0, int64(split), options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkChunkCounts(t, shrunk, 0, int64(split), referenceMatches(t, input[:split], query, smart, ignore))
 	}
 
 	// Rolling retention decodes from the new base, reusing later chunks.

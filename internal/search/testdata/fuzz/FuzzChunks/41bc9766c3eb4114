@@ -1,0 +1,5 @@
+go test fuzz v1
+string("\xdf")
+string("\x97\\C")
+byte('\x03')
+bool(false)

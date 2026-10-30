@@ -51,17 +51,49 @@ type matchRange struct{ start, end int64 }
 
 // Deliberately use only single-token decoding and a simple literal comparison,
 // not the batching/KMP/range-selection code being tested.
+// referencePattern applies the escapes a literal query honors: \V changes
+// nothing, \c and \C force case folding on or off (\c wins), and \\ is one
+// backslash; any other backslash is literal.
+func referencePattern(query string, smart, ignore bool) ([]rune, bool) {
+	var pattern []rune
+	force, upper := 0, false
+	runes := []rune(query)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r == '\\' && i+1 < len(runes) {
+			switch runes[i+1] {
+			case 'V':
+				i++
+				continue
+			case 'c':
+				force = 1
+				i++
+				continue
+			case 'C':
+				if force == 0 {
+					force = -1
+				}
+				i++
+				continue
+			case '\\':
+				i++
+			}
+		}
+		upper = upper || unicode.IsUpper(r)
+		pattern = append(pattern, r)
+	}
+	fold := (smart || ignore) && !(smart && upper)
+	if force != 0 {
+		fold = force > 0
+	}
+	return pattern, fold
+}
+
 func referenceMatches(t testing.TB, input, query string, smart, ignore bool) []matchRange {
 	t.Helper()
-	pattern := []rune(query)
+	pattern, fold := referencePattern(query, smart, ignore)
 	if len(pattern) == 0 {
 		return nil
-	}
-	fold := smart || ignore
-	for _, r := range pattern {
-		if smart && unicode.IsUpper(r) {
-			fold = false
-		}
 	}
 	reader := searchReader{reader: content.NewReader(strings.NewReader(input), 0, int64(len(input)), 0, true), ctx: context.Background()}
 	var tokens []content.Token

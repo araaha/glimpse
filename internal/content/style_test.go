@@ -2,6 +2,7 @@ package content
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +91,69 @@ func TestPaletteIdentityAndRGBRemainDistinct(t *testing.T) {
 	}
 	if got[1].Style != 0 || got[1].UnderlineColor != 0 {
 		t.Fatal("default color resets lost")
+	}
+}
+
+func TestAttributesSetAndResetIndividually(t *testing.T) {
+	for _, tt := range []struct {
+		set, reset string
+		attr       Style
+	}{
+		{"1", "22", Bold}, {"2", "22", Dim}, {"3", "23", Italic},
+		{"4", "24", Underline}, {"7", "27", Reverse}, {"9", "29", Strike},
+	} {
+		// The other attributes must survive each reset.
+		got := tokens(t, "\x1b[1;2;3;4;7;9mA\x1b["+tt.set+"mB\x1b["+tt.reset+"mC")
+		all := Bold | Dim | Italic | Underline | Reverse | Strike
+		if got[0].Style != all || got[1].Style != all {
+			t.Fatalf("%s: attributes = %b, %b", tt.set, got[0].Style, got[1].Style)
+		}
+		want := all &^ tt.attr
+		if tt.reset == "22" {
+			want = all &^ (Bold | Dim)
+		}
+		if got[2].Style != want {
+			t.Fatalf("%s reset by %s = %b, want %b", tt.set, tt.reset, got[2].Style, want)
+		}
+	}
+}
+
+func TestMalformedExtendedColors(t *testing.T) {
+	for _, tt := range []struct {
+		code string
+		want Style
+	}{
+		// An out-of-range color is skipped with its operands; later values apply.
+		{"38;5;300;1", Bold},
+		{"38;2;1;2;999;3", Italic},
+		// Truncated or unknown extended colors end the sequence.
+		{"3;38;5", Italic},
+		{"3;48;2;1;2", Italic},
+		{"3;38;7;1", Italic},
+		// Non-numeric or negative values invalidate the whole sequence.
+		{"1;x", 0}, {"-1", 0}, {"1;-3", 0}, {"abc", 0},
+		// Unknown attributes are ignored.
+		{"5;1", Bold}, {"1;99", Bold},
+	} {
+		if got := tokens(t, "\x1b["+tt.code+"mX")[0].Style; got != tt.want {
+			t.Errorf("%q style = %b, want %b", tt.code, got, tt.want)
+		}
+	}
+	// More than 64 values are refused rather than parsed without bound.
+	long := strings.Repeat("1;", 65) + "3"
+	if got := tokens(t, "\x1b["+long+"mX")[0].Style; got != 0 {
+		t.Errorf("65 values style = %b", got)
+	}
+}
+
+func TestPaletteApproximations(t *testing.T) {
+	for index, want := range map[int]uint32{
+		0: 0x000000, 9: 0xff0000, 15: 0xffffff,
+		16: 0x000000, 196: 0xff0000, 231: 0xffffff, 67: 0x5f87af,
+		232: 0x080808, 244: 0x808080, 255: 0xeeeeee,
+	} {
+		if got, ok := indexedColor(index).RGB(); !ok || got != want {
+			t.Errorf("palette %d = %06x, want %06x", index, got, want)
+		}
 	}
 }

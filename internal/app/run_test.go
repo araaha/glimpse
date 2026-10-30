@@ -1114,3 +1114,32 @@ func TestRunRegexSearch(t *testing.T) {
 	viewer.press("q")
 	viewer.expectExit(t)
 }
+
+func TestRunSearchPromptEdgeCases(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	viewer := startTestViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch, IncrementalSearch: true}, "start\none\ntwo\ntarget\nend", 12, 3)
+	// Accepting an empty prompt repeats the previous search, if there is one.
+	viewer.press("/", "<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("No previous search", false))
+	// Erasing the whole preview returns to where the prompt opened.
+	viewer.press("/")
+	viewer.typeText("targ")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.SearchActive && firstFrameLine("target")(frame) })
+	viewer.press("<Backspace>", "<Backspace>", "<Backspace>", "<Backspace>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.Search == "/" && firstFrameLine("start")(frame) })
+	viewer.press("<Esc>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return !frame.SearchActive && firstFrameLine("start")(frame) })
+	// Command errors are reported without leaving the view.
+	viewer.press(":")
+	viewer.typeText("bogus")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return frame.Search == `unknown command "bogus"` && firstFrameLine("start")(frame)
+	})
+	viewer.press(":")
+	viewer.typeText("set wrap=1")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, searchFrame("set wrap takes no value", false))
+	viewer.press("q")
+	viewer.expectExit(t)
+}
