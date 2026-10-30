@@ -249,3 +249,65 @@ func TestWatchByNameIgnoresFIFOReplacement(t *testing.T) {
 	}
 	waitContent(t, doc, "old\n")
 }
+
+func TestWatchDetectsMiddleEdit(t *testing.T) {
+	content := strings.Repeat("abcdefghij\n", 1200) // ~13 KB
+	doc, path, _ := watchedDocument(t, content, false)
+	// The document reads the file in place, so its bytes change at once; what
+	// matters is the reload that rebuilds line indexes and search counts.
+	before, _ := doc.Generation()
+	edited := []byte(content)
+	edited[6000] = 'X'
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteAt(edited[6000:6001], 6000); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	later := time.Now().Add(time.Second)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for generation, _ := doc.Generation(); generation == before; generation, _ = doc.Generation() {
+		if time.Now().After(deadline) {
+			t.Fatal("an edit in the middle of the file did not reload it")
+		}
+		time.Sleep(testInterval)
+	}
+	waitContent(t, doc, string(edited))
+}
+
+// Past exactFingerprint only samples are compared, so a same-size write is
+// reloaded unverified while appends still only grow the document.
+func TestWatchLargeFileEditsAndAppends(t *testing.T) {
+	content := strings.Repeat("0123456789abcdef\n", exactFingerprint/17+100)
+	doc, path, _ := watchedDocument(t, content, false)
+	appendFile(t, path, "tail\n")
+	waitContent(t, doc, content+"tail\n")
+	if generation, _ := doc.Generation(); generation != 0 {
+		t.Fatalf("append reloaded the document (generation %d)", generation)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Between the probes, so only the unchanged size and new time reveal it.
+	if _, err := file.WriteAt([]byte("X"), int64(len(content))/130); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	later := time.Now().Add(time.Second)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for generation, _ := doc.Generation(); generation == 0; generation, _ = doc.Generation() {
+		if time.Now().After(deadline) {
+			t.Fatal("a same-size write to a large file was not reloaded")
+		}
+		time.Sleep(testInterval)
+	}
+}

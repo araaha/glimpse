@@ -21,7 +21,7 @@ type Document struct {
 	// recheckName asks a descriptor watcher to compare its path once, as
 	// after an editor that saves by renaming a new file over the old one.
 	recheckName atomic.Bool
-	loaded      []byte // fingerprint of a file-backed document when loaded
+	loaded      uint32 // fingerprint of a file-backed document when loaded
 	// loadedModTime is the file's modification time when it was loaded.
 	loadedModTime time.Time
 }
@@ -50,7 +50,7 @@ func (d *Document) ReadFrom(r io.Reader) (int64, error) {
 				if err := d.data.useFile(file, offset, length); err != nil {
 					return 0, err
 				}
-				d.loaded, d.loadedModTime = sample(file, offset, length), info.ModTime()
+				d.loaded, d.loadedModTime = fingerprint(file, offset, length), info.ModTime()
 				_, err := file.Seek(length, io.SeekCurrent)
 				return length, err
 			}

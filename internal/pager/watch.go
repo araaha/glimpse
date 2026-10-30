@@ -1,9 +1,9 @@
 package pager
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"syscall"
 	"time"
@@ -58,7 +58,7 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 		if d.data.reload(file, 0, info.Size(), reason) != nil {
 			return false
 		}
-		known, modified = sample(file, 0, info.Size()), info.ModTime()
+		known, modified = fingerprint(file, 0, info.Size()), info.ModTime()
 		return true
 	}
 	ticker := time.NewTicker(interval)
@@ -124,31 +124,56 @@ func (d *Document) Watch(ctx context.Context, file *os.File, path string, byName
 		if size == length && info.ModTime().Equal(modified) {
 			continue
 		}
-		if size >= length && bytes.Equal(sample(current, offset, length), known) {
+		// Appends always grow a file, so a changed time without growth means
+		// it was written in place; only a small file can be verified unchanged.
+		unchanged := size >= length && fingerprint(current, offset, length) == known
+		if unchanged && (size > length || length <= exactFingerprint) {
 			if size > length {
 				d.data.grow(size)
-				known = sample(current, offset, size)
+				known = fingerprint(current, offset, size)
 			}
 			modified = info.ModTime()
 			continue
 		}
 		// The file shrank, or the bytes already shown changed because it was
-		// truncated and rewritten between polls. Content before the old offset
-		// may also have changed, so show the file from its start.
+		// written in place or truncated and rewritten between polls. Content
+		// before the old offset may also have changed, so show the file from
+		// its start.
 		if !load(current, info, "truncated") {
 			return
 		}
 	}
 }
 
-// sample fingerprints content already shown: its head and the bytes just
-// before its end. Appends leave both unchanged.
-func sample(file *os.File, offset, length int64) []byte {
-	head := make([]byte, min(length, 4096))
-	n, _ := file.ReadAt(head, offset)
-	tail := make([]byte, min(length, 64))
-	m, _ := file.ReadAt(tail, offset+length-int64(len(tail)))
-	return append(head[:n], tail[:m]...)
+// exactFingerprint is the largest content fingerprinted in full; checking it
+// takes about a millisecond, and only when the file's time changes.
+const exactFingerprint = 1 << 20
+
+var castagnoli = crc32.MakeTable(crc32.Castagnoli)
+
+// fingerprint checksums content already shown, which appends leave unchanged:
+// all of it up to exactFingerprint, otherwise its head, its last bytes, and
+// evenly spaced probes between them.
+func fingerprint(file *os.File, offset, length int64) uint32 {
+	if length <= exactFingerprint {
+		buf := make([]byte, length)
+		n, _ := file.ReadAt(buf, offset)
+		return crc32.Checksum(buf[:n], castagnoli)
+	}
+	const head, probes, probe = 4096, 64, 64
+	buf := make([]byte, 0, head+(probes+1)*probe)
+	read := func(at, size int64) {
+		start := len(buf)
+		buf = buf[:start+int(size)]
+		n, _ := file.ReadAt(buf[start:], at)
+		buf = buf[:start+n]
+	}
+	read(offset, head)
+	for i := int64(1); i <= probes; i++ {
+		read(offset+length*i/(probes+1), probe)
+	}
+	read(offset+length-probe, probe)
+	return crc32.Checksum(buf, castagnoli)
 }
 
 func unwrapPathError(err error) error {
