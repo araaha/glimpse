@@ -356,23 +356,6 @@ Not supported
 VS
 --
 
-How glimpse compares with [less](https://github.com/gwsw/less),
-[ov](https://github.com/noborus/ov) and [moor](https://github.com/walles/moor),
-based on their documentation for less 710, ov 0.55.0 and moor 2.19.6.
-
-| | glimpse | less | ov | moor |
-| --- | :---: | :---: | :---: | :---: |
-| Follow appended input (`tail -f`) | ✓ | ✓ | ✓ | ✓ |
-| Follow a path through rotation (`tail -F`) | ✓ | ✓ | ✓ | ✗ |
-| Incremental search | ✓ | ✓ | ✓ | ✓ |
-| Regular expression search | ✓ | ✓ | ✓ | ✓ |
-| Open the file in an editor | ✓ | ✓ | ✓ | ✓ |
-| Rebind keys | ✓ | ✓ | ✓ | ✗ |
-| Key sequences | ✓ | ✗ | ✗ | ✗ |
-| Spool long pipes to disk, losslessly | ✓ | ✗ | ✗ | ✗ |
-| Filter to matching lines | ✓ | ✓ | ✓ | ✓ |
-| Configuration | TOML file, environment | `lesskey` file, `LESS` | YAML file | `MOOR` |
-
 - **less** is the standard pager, installed almost everywhere, with decades of
   features and options.
 - **ov** has the most features for tabular and sectioned text: header lines,
