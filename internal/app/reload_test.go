@@ -20,7 +20,7 @@ func prefixedLines(prefix string, n int) string {
 
 func TestRunReloadKeepsTheLine(t *testing.T) {
 	path, file := numberedFile(t, "lines.txt", 60)
-	viewer := startReaderViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch, JumpTarget: JumpTarget{Fraction: .5}}, file, path, 20, 8, false)
+	viewer := startReaderViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch, JumpTarget: JumpTarget{fraction: .5, set: true}}, file, path, 20, 8, false)
 	viewer.press(":", "3", "0", "<Enter>")
 	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return len(frame.Lines) > 3 && frame.Lines[3] == "30" })
 	// Rewriting in place reloads the file; line 30 stays on the jump-target row.

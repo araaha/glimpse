@@ -15,14 +15,16 @@ func TestParseJumpTarget(t *testing.T) {
 		display string
 	}{
 		{"1", [3]int{0, 0, 0}, "1"},
-		{"4", [3]int{0, 3, 3}, "4"},
-		{"40", [3]int{0, 9, 10}, "40"},
-		{"-1", [3]int{0, 9, 10}, "-1"},
-		{"-3", [3]int{0, 7, 8}, "-3"},
-		{"-40", [3]int{0, 0, 0}, "-40"},
+		{"1.0", [3]int{0, 0, 0}, "1"},
+		{"0", [3]int{0, 9, 10}, "0"},
+		{"0.0", [3]int{0, 9, 10}, "0"},
+		{".0", [3]int{0, 9, 10}, "0"},
 		{".5", [3]int{0, 5, 5}, ".5"},
-		{"0.3", [3]int{0, 3, 3}, ".3"},
-		{".0", [3]int{0, 0, 0}, "1"},
+		{"0.3", [3]int{0, 6, 7}, ".3"},
+		{"0.25", [3]int{0, 7, 8}, ".25"},
+		{"0.75", [3]int{0, 2, 3}, ".75"},
+		{" 0.5 ", [3]int{0, 5, 5}, ".5"},
+		{"5e-1", [3]int{0, 5, 5}, ".5"},
 	} {
 		target, err := ParseJumpTarget(tt.value)
 		if err != nil {
@@ -36,14 +38,21 @@ func TestParseJumpTarget(t *testing.T) {
 		if target.String() != tt.display {
 			t.Fatalf("%s displays as %q", tt.value, target.String())
 		}
+		if got := target.Row(0); got != 0 {
+			t.Fatalf("%s in an empty viewport = row %d", tt.value, got)
+		}
+		roundTrip, err := ParseJumpTarget(target.String())
+		if err != nil || roundTrip != target {
+			t.Fatalf("%s round trip = %+v, %v, want %+v", tt.value, roundTrip, err, target)
+		}
 	}
-	for _, value := range []string{"", "0", "1.5", "-.5", "x", "."} {
+	for _, value := range []string{"", "2", "4", "-1", "1.5", "1.01", "-.5", "x", ".", "NaN", "nan", "Inf", "+Inf", "-Inf", "1e999"} {
 		if _, err := ParseJumpTarget(value); err == nil {
 			t.Fatalf("%q was accepted", value)
 		}
 	}
-	if (JumpTarget{}).Row(0) != 0 {
-		t.Fatal("empty viewport row")
+	if (JumpTarget{}).Row(10) != 0 || (JumpTarget{}).String() != "1" {
+		t.Fatal("zero value must default to the top")
 	}
 }
 
@@ -57,7 +66,7 @@ func TestRunJumpTargetPositionsSearchesAndLineJumps(t *testing.T) {
 	for _, tt := range []struct {
 		target string
 		row    int
-	}{{"3", 2}, {".5", 2}, {"-1", 4}} {
+	}{{"1", 0}, {".75", 1}, {".5", 2}, {".25", 3}, {"0", 4}} {
 		t.Run(tt.target, func(t *testing.T) {
 			target, err := ParseJumpTarget(tt.target)
 			if err != nil {

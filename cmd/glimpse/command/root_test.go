@@ -206,19 +206,23 @@ func TestJumpTargetConfiguration(t *testing.T) {
 	for _, tt := range []struct {
 		name, config, env, wantErr string
 		args                       []string
-		want                       app.JumpTarget
+		want                       string
 	}{
-		{name: "default", want: app.JumpTarget{Line: 1}},
-		{name: "short flag", args: []string{"-j4"}, want: app.JumpTarget{Line: 4}},
-		{name: "long flag fraction", args: []string{"--jump-target=.5"}, want: app.JumpTarget{Fraction: .5}},
-		{name: "negative flag", args: []string{"-j", "-2"}, want: app.JumpTarget{Line: -2}},
-		{name: "TOML integer", config: "jump-target = -3\n", want: app.JumpTarget{Line: -3}},
-		{name: "TOML float", config: "jump-target = 0.25\n", want: app.JumpTarget{Fraction: .25}},
-		{name: "TOML string", config: "jump-target = '.5'\n", want: app.JumpTarget{Fraction: .5}},
-		{name: "environment overrides TOML", config: "jump-target = 2\n", env: "5", want: app.JumpTarget{Line: 5}},
-		{name: "flag overrides environment", env: "5", args: []string{"-j6"}, want: app.JumpTarget{Line: 6}},
-		{name: "zero", args: []string{"-j0"}, wantErr: "nonzero"},
-		{name: "fraction out of range", config: "jump-target = 1.5\n", wantErr: "fraction"},
+		{name: "default", want: "1"},
+		{name: "short flag", args: []string{"-j.75"}, want: ".75"},
+		{name: "long flag fraction", args: []string{"--jump-target=.5"}, want: ".5"},
+		{name: "zero", args: []string{"-j0"}, want: "0"},
+		{name: "one", args: []string{"--jump-target=1"}, want: "1"},
+		{name: "decimal one", args: []string{"-j1.0"}, want: "1"},
+		{name: "TOML integer", config: "jump-target = 0\n", want: "0"},
+		{name: "TOML float", config: "jump-target = 0.25\n", want: ".25"},
+		{name: "TOML string", config: "jump-target = '.5'\n", want: ".5"},
+		{name: "environment overrides TOML", config: "jump-target = 0\n", env: ".5", want: ".5"},
+		{name: "flag overrides environment", env: ".5", args: []string{"-j.75"}, want: ".75"},
+		{name: "negative flag", args: []string{"-j", "-2"}, wantErr: "between 0 and 1"},
+		{name: "integer out of range", args: []string{"-j4"}, wantErr: "between 0 and 1"},
+		{name: "fraction out of range", config: "jump-target = 1.5\n", wantErr: "between 0 and 1"},
+		{name: "NaN", args: []string{"-jNaN"}, wantErr: "between 0 and 1"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -230,8 +234,8 @@ func TestJumpTargetConfiguration(t *testing.T) {
 			}
 			root := newRoot(func(_ context.Context, application *app.App, input io.ReadCloser, _ string) error {
 				defer input.Close()
-				if application.JumpTarget != tt.want {
-					t.Fatalf("JumpTarget = %+v, want %+v", application.JumpTarget, tt.want)
+				if got := application.JumpTarget.String(); got != tt.want {
+					t.Fatalf("JumpTarget = %s, want %s", got, tt.want)
 				}
 				return nil
 			}, nil)
@@ -317,10 +321,10 @@ func TestEnvironmentAndTOMLValueTypes(t *testing.T) {
 	}{
 		{name: "environment booleans and integers", env: map[string]string{"GLIMPSE_DISPLAY_WRAP": "false", "GLIMPSE_STORAGE_MEMORY_BUDGET": "4096", "GLIMPSE_FOLLOW": "1"},
 			check: func(o app.Options) bool { return o.NoWrap && o.Storage.MemoryBudget == 4096 && o.Follow }},
-		{name: "environment jump target", env: map[string]string{"GLIMPSE_JUMP_TARGET": "-1"},
-			check: func(o app.Options) bool { return o.JumpTarget == app.JumpTarget{Line: -1} }},
-		{name: "numeric TOML jump target", config: "jump-target = -2\n",
-			check: func(o app.Options) bool { return o.JumpTarget == app.JumpTarget{Line: -2} }},
+		{name: "environment jump target", env: map[string]string{"GLIMPSE_JUMP_TARGET": "0"},
+			check: func(o app.Options) bool { return o.JumpTarget.String() == "0" }},
+		{name: "numeric TOML jump target", config: "jump-target = 0.75\n",
+			check: func(o app.Options) bool { return o.JumpTarget.String() == ".75" }},
 		{name: "quoted TOML boolean", config: "[display]\nwrap = 'false'\n", check: func(o app.Options) bool { return o.NoWrap }},
 		{name: "unknown plain keys are ignored at startup", config: "colour = 1\n[search]\nsmartcase = true\n[storage]\nquota = 1\n",
 			check: func(o app.Options) bool { return !o.SmartCase }},

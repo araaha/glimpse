@@ -58,8 +58,8 @@ func TestRunCommandLineFollowsJumpTarget(t *testing.T) {
 		{"top by default", JumpTarget{}, nil, 1, 0},
 		{"scrolled", JumpTarget{}, []string{"j", "j"}, 3, 0},
 		{":N jump at the top", JumpTarget{}, []string{":", "2", "0", "<Enter>"}, 20, 0},
-		{":N jump at the middle", JumpTarget{Fraction: .5}, []string{":", "2", "0", "<Enter>"}, 20, 3},
-		{"search at the bottom", JumpTarget{Line: -1}, []string{"/", "3", "3", "<Enter>"}, 33, 5},
+		{":N jump at the middle", JumpTarget{fraction: .5, set: true}, []string{":", "2", "0", "<Enter>"}, 20, 3},
+		{"search at the bottom", JumpTarget{fraction: 0, set: true}, []string{"/", "3", "3", "<Enter>"}, 33, 5},
 		{"search at the top", JumpTarget{}, []string{"/", "3", "3", "<Enter>"}, 33, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

@@ -28,8 +28,8 @@
 # waiting while it is missing, instead of following the open file (tail -f).
 #follow-name = false
 
-# Screen line where search matches and line jumps land: 1 is the top, -1 the
-# bottom, and a fraction of the screen height such as 0.5 the middle.
+# Screen position where search matches and line jumps land, from 0 (bottom)
+# to 1 (top), with 0.5 in the middle.
 # Write fractions as 0.5 or ".5", not .5.
 #jump-target = 1
 

@@ -21,7 +21,7 @@ func TestCommands(t *testing.T) {
 			t.Fatalf("%q: %+v, %v", tt.input, got, err)
 		}
 	}
-	for _, input := range []string{"!rm", "0", "-1", "set unknown", "set smartcase=true", "set nojump-target", "set no", "set jump-target=0", "set jump-target", "99999999999999999999999999"} {
+	for _, input := range []string{"!rm", "0", "-1", "set unknown", "set smartcase=true", "set nojump-target", "set no", "set jump-target=-1", "set jump-target=2", "set jump-target", "99999999999999999999999999"} {
 		if _, err := a.command(input); err == nil {
 			t.Fatalf("accepted %q", input)
 		}
@@ -37,7 +37,9 @@ func TestCommands(t *testing.T) {
 	if got, err := a.command("set noignorecase"); err != nil || got.message != "noignorecase" || a.SmartCase || a.IgnoreCase {
 		t.Fatalf("set noignorecase = %+v, %v, smart %v ignore %v", got, err, a.SmartCase, a.IgnoreCase)
 	}
-	if got, err := a.command("set jump-target=.5"); err != nil || got.message != "jump-target=.5" || a.JumpTarget != (JumpTarget{Fraction: .5}) {
-		t.Fatalf("set jump-target = %+v, %v, %+v", got, err, a.JumpTarget)
+	for _, value := range []string{".5", "0", "1"} {
+		if got, err := a.command("set jump-target=" + value); err != nil || got.message != "jump-target="+value || a.JumpTarget.String() != value {
+			t.Fatalf("set jump-target=%s = %+v, %v, %+v", value, got, err, a.JumpTarget)
+		}
 	}
 }

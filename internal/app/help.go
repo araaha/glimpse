@@ -57,7 +57,7 @@ func helpLines(view, prompt *keybind.Matcher, runs map[keybind.Action]RunCommand
 		{":set noOPTION", "  incsearch (is), hlsearch (hls), magic,"},
 		{"", "  wrap, number (nu), or hex-colors"},
 		{"Tab  Shift-Tab", "complete a : command, as in vim"},
-		{":set jump-target=N", "place jumps on screen line N (.5 is the middle)"},
+		{":set jump-target=N", "place jumps from 0 (bottom) to 1 (top); .5 is the middle"},
 		{":set spool-quota=N", "raise the stream storage quota in bytes"},
 	}})
 	width := 0

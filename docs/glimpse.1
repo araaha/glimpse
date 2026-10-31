@@ -53,13 +53,13 @@ By default the open file is followed, like
 .BR "tail \-f" .
 .TP
 .BI \-j " N" "\fR, \fP\-\-jump\-target=" N
-Screen line where search matches and line jumps land:
+Screen position where search matches and line jumps land, from
+.B 0
+(bottom) to
 .B 1
-is the top,
-.B \-1
-the bottom, and a value with a decimal point such as
+(top, the default), with
 .B .5
-a fraction of the screen height.
+in the middle.
 .TP
 .BR \-N ", " \-\-line\-numbers
 Show a line number gutter (toggle with
@@ -324,7 +324,7 @@ or
 .BR hex\-colors .
 .TP
 .BI ":set jump\-target=" N
-Change the jump target.
+Change the jump target, from 0 (bottom) to 1 (top).
 .TP
 .BI ":set spool\-quota=" BYTES
 Raise the stream storage quota and resume reading.
