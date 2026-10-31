@@ -139,23 +139,10 @@ func countChunks(ctx context.Context, source Source, start, end, limit int64, op
 	if start >= end {
 		return nil, true, nil
 	}
-	size := options.ChunkSize
-	if size <= 0 {
-		size = DefaultChunkSize
+	bounds, err := chunkBounds(source, start, end, options.ChunkSize)
+	if err != nil {
+		return nil, false, err
 	}
-	bounds := []int64{start}
-	for next := start + size; next < end; {
-		boundary, err := lineStart(source, next, end)
-		if err != nil {
-			return nil, false, err
-		}
-		if boundary < 0 {
-			break
-		}
-		bounds = append(bounds, boundary)
-		next = boundary + size
-	}
-	bounds = append(bounds, end)
 	type scanned struct {
 		chunk     Chunk
 		straddled bool
@@ -173,46 +160,8 @@ func countChunks(ctx context.Context, source Source, start, end, limit int64, op
 		})
 		return result, err
 	}
-	results := make([]scanned, len(bounds)-1)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var (
-		wait     sync.WaitGroup
-		mu       sync.Mutex
-		next     int
-		firstErr error
-	)
-	for range max(1, min(options.Workers, len(results))) {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			for {
-				mu.Lock()
-				i := next
-				next++
-				mu.Unlock()
-				if i >= len(results) || ctx.Err() != nil {
-					return
-				}
-				result, err := scan(bounds[i], bounds[i+1])
-				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					mu.Unlock()
-					cancel()
-					return
-				}
-				results[i] = result
-			}
-		}()
-	}
-	wait.Wait()
-	if firstErr != nil {
-		return nil, false, firstErr
-	}
-	if err := ctx.Err(); err != nil {
+	results, err := scanChunks(ctx, bounds, options.Workers, scan)
+	if err != nil {
 		return nil, false, err
 	}
 	chunks := func() []Chunk {
@@ -240,6 +189,72 @@ func countChunks(ctx context.Context, source Source, start, end, limit int64, op
 		results = append(results[:i+1], results[i+2:]...)
 	}
 	return chunks(), true, nil
+}
+
+// chunkBounds splits [start, end) at candidate restart points about size
+// bytes apart (DefaultChunkSize when size is not positive).
+func chunkBounds(source Source, start, end, size int64) ([]int64, error) {
+	if size <= 0 {
+		size = DefaultChunkSize
+	}
+	bounds := []int64{start}
+	for next := start + size; next < end; {
+		boundary, err := lineStart(source, next, end)
+		if err != nil {
+			return nil, err
+		}
+		if boundary < 0 {
+			break
+		}
+		bounds = append(bounds, boundary)
+		next = boundary + size
+	}
+	return append(bounds, end), nil
+}
+
+// scanChunks runs scan over each pair of adjacent bounds on up to workers
+// goroutines, returning the results in order or the first error.
+func scanChunks[T any](ctx context.Context, bounds []int64, workers int, scan func(start, end int64) (T, error)) ([]T, error) {
+	results := make([]T, len(bounds)-1)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		wait     sync.WaitGroup
+		mu       sync.Mutex
+		next     int
+		firstErr error
+	)
+	for range max(1, min(workers, len(results))) {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for {
+				mu.Lock()
+				i := next
+				next++
+				mu.Unlock()
+				if i >= len(results) || ctx.Err() != nil {
+					return
+				}
+				result, err := scan(bounds[i], bounds[i+1])
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					cancel()
+					return
+				}
+				results[i] = result
+			}
+		}()
+	}
+	wait.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return results, ctx.Err()
 }
 
 // lineStart returns the offset after the first raw newline in [from, end), or
