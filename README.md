@@ -1,6 +1,6 @@
 <div align="center">
   <h1>glimpse</h1>
-  <p>A terminal pager for files and streams</p>
+  <p>More than less. Just a glimpse</p>
   <a href="https://github.com/araaha/glimpse/actions/workflows/test.yml"><img src="https://github.com/araaha/glimpse/actions/workflows/test.yml/badge.svg?branch=master" alt="Build status"></a>
   <a href="https://github.com/araaha/glimpse/releases"><img src="https://img.shields.io/github/v/release/araaha/glimpse" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/araaha/glimpse" alt="License"></a>
@@ -8,28 +8,20 @@
 
 ---
 
-glimpse shows a file, or whatever is piped into it, one screen at a time. It
-stays responsive on huge files, endless streams and lines that never end, and
-it never lets the text it shows take control of your terminal.
-
-<img src="docs/demo.gif" alt="glimpse paging an endless line of random characters: a regular expression search, follow mode and the key help" width="720">
+glimpse is a pager. It
+stays responsive on large files and streams.
 
 Highlights
 ----------
 
-- **Responsive on any input** // Regular files are read in place instead of
+- **Responsive on large inputs** // Regular files are read in place instead of
   loaded, so huge files, endless streams and single lines that never end stay
   quick to scroll and search
-- **Safe** // ANSI colors, underline styles and man-page bold and underline are
-  rendered; every other terminal control sequence in the input is dropped
-- **Made for streams** // Pipes are kept in memory up to a budget, then in a
-  private spool file on disk; nothing is lost unless you ask for a rolling window
-- **Follows files like `tail -f` and `tail -F`** // Appends, truncation, log
-  rotation and files saved by an editor are picked up while you read
-- **Vim-like** // `/` regular expression search, `:` commands with `:set`, `gg`,
-  `G`, counts, and keys you can rebind in a TOML file
+- **Vim-like** // `/` regular expression search, `:` commands with `:set` and autocomplete, `gg`,
+  `G`, counts, and keys like `zq` you can rebind in a TOML file
 - **Scriptable** // Bind keys to shell commands that receive the current file
   and line
+- **Batteries-included** // Comes with built-in completions for Bash, Zsh, Fish and Nushell
 
 Table of Contents
 -----------------
@@ -45,7 +37,6 @@ Table of Contents
     * [Running commands](#running-commands)
 * [Following files](#following-files)
 * [Large input and memory](#large-input-and-memory)
-* [Not supported](#not-supported)
 * [VS](#vs)
 * [License](#license)
 
@@ -54,12 +45,53 @@ Installation
 
 glimpse is tested on Linux and macOS and builds on FreeBSD and OpenBSD.
 
+### Arch Linux
+
+From the AUR, built from source or as the release binary:
+
+```sh
+yay -S glimpse-pager        # or glimpse-pager-bin
+```
+
+Both install `/usr/bin/glimpse`, so they conflict with the unrelated AUR
+package named `glimpse`.
+
+### Debian and Ubuntu
+
+Download the `.deb` for your architecture (`amd64` or `arm64`) from the
+[latest release](https://github.com/araaha/glimpse/releases/latest) and install
+it:
+
+```sh
+sudo apt install ./glimpse_*_linux_amd64.deb
+```
+
+### Fedora
+
+```sh
+sudo dnf install ./glimpse_*_linux_amd64.rpm
+```
+
+using the `.rpm` from the
+[latest release](https://github.com/araaha/glimpse/releases/latest).
+
+### Nix
+
+```sh
+nix run github:araaha/glimpse -- FILE           # try it
+nix profile install github:araaha/glimpse       # install it
+```
+
+In a flake-based NixOS or Home Manager configuration, add the flake as an input
+and use `inputs.glimpse.packages.${pkgs.system}.default`.
+
 ### Binary releases
 
 Download an archive for your platform from the
 [releases page](https://github.com/araaha/glimpse/releases). Each one contains
-the `glimpse` binary, the man page `docs/glimpse.1`, and bash, zsh and fish
-completions in `completions/`.
+the `glimpse` binary, the man page `docs/glimpse.1`, bash, zsh, fish and
+Nushell completions in `completions/`, and the reference configuration
+`glimpse.toml`.
 
 ### Using Go
 
@@ -68,7 +100,7 @@ go install github.com/araaha/glimpse/cmd/glimpse@latest
 ```
 
 This installs the binary only. Generate completions with
-`glimpse --completion bash|zsh|fish`.
+`glimpse --completion bash|zsh|fish|nushell`.
 
 ### From source
 
@@ -80,7 +112,8 @@ cd glimpse
 sudo make install
 ```
 
-This installs the binary, the man page and the completions under `/usr/local`.
+This installs the binary, the man page and the bash, zsh, fish and Nushell
+completions under `/usr/local`.
 Set `PREFIX` to install elsewhere, or `DESTDIR` for a staged install, and use
 `make uninstall` to remove them.
 
@@ -176,6 +209,10 @@ Settings are read from `$XDG_CONFIG_HOME/glimpse/glimpse.toml`, usually
 variables, which override the file. Every option can also be set as an
 environment variable such as `GLIMPSE_CMDHEIGHT=1` or
 `GLIMPSE_SEARCH_SMART_CASE=true`.
+
+[`glimpse.toml`](glimpse.toml) lists every setting, commented out at its
+default, and is a good starting point. The packages install it under
+`/usr/share/doc/`. A short example:
 
 ```toml
 # Land searches and line jumps in the middle of the screen.
@@ -311,13 +348,9 @@ based on their documentation for less 710, ov 0.55.0 and moor 2.19.6.
 | Regular expression search | ✓ | ✓ | ✓ | ✓ |
 | Open the file in an editor | ✓ | ✓ | ✓ | ✓ |
 | Rebind keys | ✓ | ✓ | ✓ | ✗ |
+| Key sequences | ✓ | ✗ | ✗ | ✗ |
 | Spool long pipes to disk, losslessly | ✓ | ✗ | ✗ | ✗ |
-| Several files in one session | ✗ | ✓ | ✓ | ✓ |
 | Filter to matching lines | ✗ | ✓ | ✓ | ✓ |
-| Mouse scrolling | ✗ | ✓ | ✓ | ✓ |
-| Syntax highlighting | ✗ | ✗ | ✗ | ✓ |
-| Compressed files | ✗ | with `LESSOPEN` | ✓ | ✓ |
-| Windows | ✗ | ✓ | ✓ | ✓ |
 | Configuration | TOML file, environment | `lesskey` file, `LESS` | YAML file | `MOOR` |
 
 - **less** is the standard pager, installed almost everywhere, with decades of
@@ -327,8 +360,7 @@ based on their documentation for less 710, ov 0.55.0 and moor 2.19.6.
   its output.
 - **moor** aims to do the right thing with no configuration, including syntax
   highlighting and transparent decompression.
-- **glimpse** focuses on huge and endless input, a vim-like interface, and
-  keeping the terminal safe from what it displays.
+- **glimpse** focuses on performance for large streams and files with a vim-like interface.
 
 License
 -------
