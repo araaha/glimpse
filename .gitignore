@@ -1,0 +1,10 @@
+# Build output (anchored so cmd/glimpse is not ignored)
+/glimpse
+
+# Go test and profiling artifacts
+*.test
+*.out
+*.prof
+coverage.*
+
+dist/
