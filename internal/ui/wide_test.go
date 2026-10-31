@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 
 	"github.com/clipperhouse/displaywidth"
 )

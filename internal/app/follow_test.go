@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func openFollowed(t *testing.T, content string) (string, *os.File) {

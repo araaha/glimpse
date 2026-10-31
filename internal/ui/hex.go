@@ -3,7 +3,7 @@ package ui
 import (
 	"unicode"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 )
 
 // hexLength is the rune count of a #RRGGBB color code.

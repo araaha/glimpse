@@ -2,7 +2,7 @@ package content
 
 import (
 	"errors"
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/pager"
 	"io"
 	"reflect"
 	"strings"

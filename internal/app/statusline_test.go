@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/search"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func TestRunStatuslineModesCountsAndLogicalLines(t *testing.T) {

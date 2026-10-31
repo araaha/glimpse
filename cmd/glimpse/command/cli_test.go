@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/app"
 )
 
 func execute(t *testing.T, config string, args ...string) (string, error) {

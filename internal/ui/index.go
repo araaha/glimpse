@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/pager"
 )
 
 // metadataQuota bounds the bytes of a group of indexes together, so a sparse

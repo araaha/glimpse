@@ -6,8 +6,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"glimpse/internal/keybind"
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/search"
 )
 
 // prompt stores rune indices but only moves/deletes at grapheme boundaries.

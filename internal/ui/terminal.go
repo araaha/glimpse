@@ -6,8 +6,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"glimpse/internal/content"
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/keybind"
 
 	"github.com/clipperhouse/displaywidth"
 	"github.com/clipperhouse/uax29/v2/graphemes"

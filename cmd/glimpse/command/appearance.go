@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"glimpse/internal/app"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func readAppearance(cfg fileConfig, options *app.Options) error {

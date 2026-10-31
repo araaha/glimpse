@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode"
 
-	"glimpse/internal/content"
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/pager"
 
 	"github.com/clipperhouse/displaywidth"
 	"github.com/clipperhouse/uax29/v2/graphemes"

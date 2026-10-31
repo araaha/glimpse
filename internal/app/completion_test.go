@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/keybind"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func TestCommandCompletions(t *testing.T) {

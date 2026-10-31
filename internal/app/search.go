@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"sync"
 
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/search"
 )
 
 type searchResponse struct {

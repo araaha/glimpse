@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/pager"
 )
 
 func TestIndexBudgetYieldsAndEventuallyMatchesFullIndex(t *testing.T) {

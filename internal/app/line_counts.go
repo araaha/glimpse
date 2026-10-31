@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"sync"
 
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/search"
 )
 
 // newlines matches every decoded newline, so its chunked parallel count skips

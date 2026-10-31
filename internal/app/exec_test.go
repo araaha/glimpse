@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 // waitFile waits for a command's output file to hold want.

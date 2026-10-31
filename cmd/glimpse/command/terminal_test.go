@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/app"
 )
 
 type terminalOutput struct{ fd uintptr }

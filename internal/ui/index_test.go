@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/pager"
 	"os"
 	"strings"
 	"testing"

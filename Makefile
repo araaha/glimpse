@@ -7,7 +7,7 @@ MANDIR ?= $(DATADIR)/man
 GO ?= go
 BIN ?= glimpse
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
-LDFLAGS := $(if $(VERSION),-X glimpse/cmd/glimpse/command.Version=$(VERSION))
+LDFLAGS := $(if $(VERSION),-X github.com/araaha/glimpse/cmd/glimpse/command.Version=$(VERSION))
 
 .PHONY: build test install uninstall
 

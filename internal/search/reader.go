@@ -3,7 +3,7 @@ package search
 import (
 	"context"
 	"errors"
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 	"io"
 )
 

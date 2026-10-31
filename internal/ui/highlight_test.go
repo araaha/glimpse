@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"glimpse/internal/pager"
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/search"
 	"testing"
 )
 

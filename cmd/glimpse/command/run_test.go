@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/app"
 
 	"github.com/spf13/viper"
 )

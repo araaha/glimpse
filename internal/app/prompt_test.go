@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/keybind"
 )
 
 func TestPromptEditing(t *testing.T) {

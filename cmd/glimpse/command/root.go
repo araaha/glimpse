@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"glimpse/internal/app"
-	"glimpse/internal/pager"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/ui"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

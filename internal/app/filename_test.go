@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func TestRunStatuslineFilenameStyle(t *testing.T) {

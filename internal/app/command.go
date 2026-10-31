@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/keybind"
 )
 
 type commandResult struct {

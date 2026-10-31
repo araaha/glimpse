@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 )
 
 type guardedSource struct {

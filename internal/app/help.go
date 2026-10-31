@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/keybind"
 )
 
 // helpLines lists the effective bindings, so configured keys and disabled

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"

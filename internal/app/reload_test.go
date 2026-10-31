@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func prefixedLines(prefix string, n int) string {

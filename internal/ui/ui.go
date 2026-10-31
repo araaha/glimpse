@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 
 	"github.com/gdamore/tcell/v3"
 )

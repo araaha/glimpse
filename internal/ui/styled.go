@@ -2,7 +2,7 @@ package ui
 
 import (
 	"errors"
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 	"io"
 	"unicode/utf8"
 )

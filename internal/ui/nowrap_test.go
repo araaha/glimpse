@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/pager"
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/search"
 )
 
 func unwrappedText(t *testing.T, input string, width int) (*Text, *countedTextSource) {

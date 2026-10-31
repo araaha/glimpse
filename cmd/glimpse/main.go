@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"glimpse/cmd/glimpse/command"
+	"github.com/araaha/glimpse/cmd/glimpse/command"
 )
 
 func main() {

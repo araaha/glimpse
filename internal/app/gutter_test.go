@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func TestRunLineNumberGutter(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/app"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3/color"
 )

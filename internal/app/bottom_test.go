@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/vt"

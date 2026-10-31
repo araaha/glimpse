@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/keybind"
 
 	"github.com/spf13/pflag"
 )

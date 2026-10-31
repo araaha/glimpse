@@ -1,4 +1,4 @@
-module glimpse
+module github.com/araaha/glimpse
 
 go 1.27
 

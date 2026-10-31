@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 )
 
 func TestQueryTranslate(t *testing.T) {

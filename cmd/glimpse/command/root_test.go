@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/app"
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/keybind"
 
 	"github.com/spf13/viper"
 )

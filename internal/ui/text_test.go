@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/pager"
 )
 
 func TestTextIgnoredBytesDoNotHideVisibleCells(t *testing.T) {

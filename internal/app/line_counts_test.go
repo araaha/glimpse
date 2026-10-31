@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"glimpse/internal/pager"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func TestLineCountsMatchTheIndex(t *testing.T) {

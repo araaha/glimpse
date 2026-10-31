@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 )
 
 // retainedSource is a snapshot whose bytes before start were discarded.

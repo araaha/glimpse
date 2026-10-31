@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 )
 
 // reflowSegmentSize is the input laid out by one reflow task.

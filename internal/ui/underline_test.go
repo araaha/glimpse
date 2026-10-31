@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"glimpse/internal/content"
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/pager"
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/vt"

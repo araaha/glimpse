@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 
-	"glimpse/internal/keybind"
-	"glimpse/internal/pager"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3"
 )

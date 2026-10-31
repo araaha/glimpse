@@ -2,7 +2,7 @@ package ui
 
 import (
 	"context"
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/search"
 	"sort"
 	"unicode/utf8"
 )

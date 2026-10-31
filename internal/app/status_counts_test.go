@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"glimpse/internal/pager"
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/search"
 )
 
 type countTestSource struct{ *strings.Reader }

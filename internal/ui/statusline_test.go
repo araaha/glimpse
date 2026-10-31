@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"

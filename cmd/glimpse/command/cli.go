@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"glimpse/internal/app"
+	"github.com/araaha/glimpse/internal/app"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -14,7 +14,7 @@ import (
 
 // Version can be set at build time:
 //
-//	go build -ldflags "-X glimpse/cmd/glimpse/command.Version=v1.0.0" ./cmd/glimpse
+//	go build -ldflags "-X github.com/araaha/glimpse/cmd/glimpse/command.Version=v1.0.0" ./cmd/glimpse
 //
 // Otherwise it comes from the module version and VCS revision in build info.
 var Version string

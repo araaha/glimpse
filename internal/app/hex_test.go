@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/ui"
 )
 
 func TestRunHexColorsToggle(t *testing.T) {

@@ -3,7 +3,7 @@ package search
 import (
 	"bytes"
 	"context"
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 	"os"
 	"strings"
 	"testing"

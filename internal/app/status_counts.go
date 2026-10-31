@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"glimpse/internal/search"
+	"github.com/araaha/glimpse/internal/search"
 )
 
 type countKey struct {

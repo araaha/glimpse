@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"glimpse/internal/pager"
+	"github.com/araaha/glimpse/internal/pager"
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"

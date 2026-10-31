@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"glimpse/internal/keybind"
-	"glimpse/internal/ui"
+	"github.com/araaha/glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/ui"
 
 	"github.com/gdamore/tcell/v3"
 )

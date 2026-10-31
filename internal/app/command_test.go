@@ -1,7 +1,7 @@
 package app
 
 import (
-	"glimpse/internal/keybind"
+	"github.com/araaha/glimpse/internal/keybind"
 	"testing"
 )
 

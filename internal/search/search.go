@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"glimpse/internal/content"
+	"github.com/araaha/glimpse/internal/content"
 	"io"
 	"unicode"
 )

@@ -1,0 +1,47 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    # The binary writes its own completions, as in make install.
+    - rm -rf completions
+    - mkdir completions
+    - sh -c 'go run ./cmd/glimpse --completion bash > completions/glimpse.bash'
+    - sh -c 'go run ./cmd/glimpse --completion zsh > completions/_glimpse'
+    - sh -c 'go run ./cmd/glimpse --completion fish > completions/glimpse.fish'
+
+builds:
+  - main: ./cmd/glimpse
+    binary: glimpse
+    env:
+      - CGO_ENABLED=0
+    # glimpse is Unix-only; see .github/workflows/test.yml.
+    goos: [linux, darwin, freebsd]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: freebsd
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/araaha/glimpse/cmd/glimpse/command.Version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - docs/glimpse.1
+      - completions/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
