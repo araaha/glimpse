@@ -95,7 +95,8 @@ jobs:
             chown -R build /home/build
             for pkg in glimpse-pager glimpse-pager-bin; do
               su build -c "cd /home/build/$pkg && makepkg --noconfirm"
-              pacman -U --noconfirm /home/build/$pkg/$pkg-*.pkg.tar.zst
+              # Not the -debug package that makepkg also builds.
+              pacman -U --noconfirm /home/build/$pkg/$pkg-[0-9]*.pkg.tar.zst
               glimpse --version
               pacman -R --noconfirm $pkg
             done'

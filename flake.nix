@@ -43,8 +43,8 @@
               --bash <($out/bin/glimpse --completion bash) \
               --zsh <($out/bin/glimpse --completion zsh) \
               --fish <($out/bin/glimpse --completion fish)
-            install -Dm644 <($out/bin/glimpse --completion nushell) \
-              $out/share/nushell/vendor/autoload/glimpse.nu
+            mkdir -p $out/share/nushell/vendor/autoload
+            $out/bin/glimpse --completion nushell > $out/share/nushell/vendor/autoload/glimpse.nu
             install -Dm644 glimpse.toml $out/share/doc/glimpse/glimpse.toml
           '';
 
