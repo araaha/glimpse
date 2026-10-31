@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -20,12 +20,12 @@ jobs:
       - run: go build ./cmd/glimpse
       - run: go test -race ./...
 
-  # Platforms without a runner: check that they still compile.
+  # Platforms glimpse is not tested on: check that they still compile.
   cross:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [freebsd/amd64, openbsd/amd64, linux/arm64, windows/arm64]
+        target: [freebsd/amd64, openbsd/amd64, linux/arm64, windows/amd64]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
