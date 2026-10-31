@@ -226,6 +226,28 @@ Show only lines matching a pattern; an empty pattern shows every line again.
 See
 .BR FILTERING .
 .TP
+.BI m x
+Mark the line at the jump target as
+.IR x ,
+a letter from a to z.
+.TP
+.BI \(aq x
+Go to mark
+.IR x ,
+placing it at the jump target.
+.B \(aq\(aq
+goes back to where the last jump started:
+a search,
+.BR n ,
+.BR N ,
+.BR gg ,
+.BR G ,
+.BR : N,
+or a mark.
+Marks keep their place through wrapping, filters, and appended input;
+after a reload replaces the content, they go to their line number.
+While filtered, a mark on a hidden line goes to the next matching line.
+.TP
 .B :
 Enter a command.
 .TP
@@ -344,6 +366,12 @@ see
 .TP
 .B :nofilter
 Show every line again.
+.TP
+.B :marks
+List the marks with their line numbers and text.
+.TP
+.BI ":delmarks " "x y" "\fR, \fP:delmarks!"
+Delete the named marks, or all of them.
 .TP
 .BR :q ", " :quit
 Quit.
@@ -509,7 +537,8 @@ an empty array disables it.
 View actions:
 quit, cancel, top, bottom, up, down, page\-up, page\-down, half\-page\-up,
 half\-page\-down, follow, toggle\-status, search\-forward, search\-backward,
-search\-next, search\-previous, command, filter, toggle\-wrap, scroll\-left,
+search\-next, search\-previous, command, filter, set\-mark, jump\-to\-mark,
+toggle\-wrap, scroll\-left,
 scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, edit, help.
 Prompt actions:
 search\-accept, search\-cancel, search\-left, search\-right, search\-start,

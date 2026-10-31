@@ -9,7 +9,7 @@ import (
 // Options use vim's names. Those taking a value end in "="; the others also
 // have a no form, offered once the word being completed starts like it.
 var (
-	commandNames = []string{"bottom", "filter", "nofilter", "q", "quit", "set", "top"}
+	commandNames = []string{"bottom", "delmarks", "filter", "marks", "nofilter", "q", "quit", "set", "top"}
 	setOptions   = []string{"hex-colors", "hlsearch", "ignorecase", "incsearch", "jump-target=", "magic", "number", "smartcase", "spool-quota=", "wrap"}
 )
 

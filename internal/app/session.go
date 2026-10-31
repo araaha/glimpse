@@ -31,6 +31,7 @@ type session struct {
 	loadedGeneration int64
 	search           searchState
 	filter           filterState
+	marks            markState
 	counts           *statusCounts
 	lineTotals       *lineCounts
 	runFailures      chan string // background run commands report failures here

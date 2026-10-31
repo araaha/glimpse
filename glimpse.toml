@@ -178,6 +178,8 @@
 #search-previous = ["N"]
 #command = [":"]
 #filter = ["&"]
+#set-mark = ["m"]                   # then the mark's letter
+#jump-to-mark = ["'"]               # then the mark's letter, or ' to go back
 #edit = ["v"]
 #help = ["g", "?"]
 

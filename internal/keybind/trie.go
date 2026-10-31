@@ -87,9 +87,10 @@ func (m *Matcher) DrainLiteral() []Command {
 // fall back to, so it should wait rather than time out and disappear.
 func (m *Matcher) NeedsTimeout() bool {
 	n := &m.root
-	for _, key := range m.pending {
+	for i, key := range m.pending {
 		n = n.children[key]
-		if n.action != "" {
+		// An action still waiting for its argument has nothing to fire.
+		if n.action != "" && !(Arguments[n.action] && i == len(m.pending)-1) {
 			return true
 		}
 	}
@@ -136,7 +137,20 @@ func (m *Matcher) resolve(expired bool) []Command {
 		if matched == len(m.pending) && len(n.children) > 0 && !expired {
 			break
 		}
-		if action != "" {
+		if action != "" && Arguments[action] {
+			if lastMatch == len(m.pending) {
+				break // Wait for the argument.
+			}
+			argument := m.pending[lastMatch]
+			m.count = 0
+			if strings.HasPrefix(string(argument), "<") && argument != "<" {
+				// A named key such as Esc abandons the action and acts itself.
+				m.pending = m.pending[lastMatch:]
+				continue
+			}
+			actions = append(actions, Command{Action: action, Text: string(argument)})
+			m.pending = m.pending[lastMatch+1:]
+		} else if action != "" {
 			command := Command{Action: action, Count: m.count}
 			if action == SearchForward || action == SearchBackward || action == CommandInput || (m.insert && (action == SearchCancel || action == Accept)) {
 				command.Remainder = append([]Key(nil), m.pending[lastMatch:]...)

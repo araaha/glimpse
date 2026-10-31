@@ -127,6 +127,8 @@ configured.
 | `/` / `?` | Search forward / backward |
 | `n` / `N` | Repeat the search in the same / opposite direction |
 | `&` | Show only lines matching a pattern; empty shows every line |
+| `m` then a letter / `'` then a letter | Mark the current line / go to a mark |
+| `''` | Go back to where the last jump started |
 | `:` | Enter a command |
 | `F` | Toggle following the end of the input |
 | `w` | Toggle line wrapping |
@@ -179,6 +181,7 @@ Searches, `G` and `:N` work within the matching lines. `&` and Enter, or
 | `:N` | Go to line N |
 | `:top`, `:bottom` | Go to the first or last line |
 | `:filter PATTERN`, `:nofilter` | Show only matching lines, or every line again |
+| `:marks`, `:delmarks a b`, `:delmarks!` | List marks, or delete some or all |
 | `:set OPTION`, `:set noOPTION` | Change an option, with vim's names: `ignorecase`, `smartcase`, `incsearch`, `hlsearch`, `magic`, `wrap`, `number`, `hex-colors` |
 | `:set jump-target=N` | Change where jumps land on screen |
 | `:set spool-quota=BYTES` | Raise the stream storage quota and resume reading |

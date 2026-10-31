@@ -293,6 +293,18 @@ func (s *Source) VirtualOffset(offset int64) (int64, bool) {
 	return seg.virtual + int64(len(reset)) + offset - seg.real, true
 }
 
+// Shows reports whether a document offset lies in a matching line, and
+// whether that is known yet.
+func (s *Source) Shows(offset int64) (shown, known bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	i := sort.Search(len(s.segments), func(i int) bool { return s.segments[i].realEnd() > offset })
+	if i < len(s.segments) && offset >= s.segments[i].real {
+		return true, true
+	}
+	return false, offset < s.decided || s.final
+}
+
 // RealLine maps a one-based line number of the filtered view to the document.
 func (s *Source) RealLine(line int64) int64 {
 	s.mu.RLock()
