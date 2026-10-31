@@ -13,7 +13,8 @@ import (
 type countKey struct {
 	query      search.Query
 	base, end  int64
-	generation int64 // document content generation; reloads invalidate counts
+	generation int64  // document content generation; reloads invalidate counts
+	filter     uint64 // the filter whose lines are counted, or 0 for the document
 }
 
 // Dense chunks only resolve the selected rank instead of retaining offsets.
@@ -99,7 +100,7 @@ func (s *statusCounts) stop() {
 func (s *statusCounts) close() { s.stop(); s.workers.Wait() }
 
 func sameCountQuery(a, b countKey) bool {
-	return a.query == b.query && a.generation == b.generation
+	return a.query == b.query && a.generation == b.generation && a.filter == b.filter
 }
 
 // chunksFor returns the exact chunk index for a snapshot, if one is ready, so

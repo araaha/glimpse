@@ -95,7 +95,7 @@ func (s *session) apply(commands []keybind.Command) (quit bool) {
 		switch command.Action {
 		case keybind.Quit:
 			return true
-		case keybind.SearchForward, keybind.SearchBackward, keybind.CommandInput:
+		case keybind.SearchForward, keybind.SearchBackward, keybind.CommandInput, keybind.FilterInput:
 			// The prompt takes the rest of the key sequence.
 			return s.openPrompt(command)
 		case keybind.SearchNext, keybind.SearchPrevious:
@@ -138,9 +138,13 @@ func (s *session) applyHelp(commands []keybind.Command) {
 func (s *session) openPrompt(command keybind.Command) (quit bool) {
 	s.clearPending()
 	s.search.begin(command.Action == keybind.SearchBackward)
-	if command.Action == keybind.CommandInput {
+	switch command.Action {
+	case keybind.CommandInput:
 		s.search.prompt = newPrompt(false, s.search.commandHistory.Entries)
 		s.search.prompt.command = true
+	case keybind.FilterInput:
+		s.search.prompt = newPrompt(false, s.search.filterHistory.Entries)
+		s.search.prompt.filter = true
 	}
 	// Opening a prompt keeps following; only a match or a jump moves the view.
 	s.search.prompt.origin, s.search.prompt.follow = s.text.Offset(s.view.top), s.view.follow
@@ -228,7 +232,7 @@ func (s *session) move(command keybind.Command) {
 	case keybind.Bottom:
 		if command.Count > 0 {
 			s.clearPending()
-			s.pendingLine = command.Count
+			s.jumpLine(command.Count)
 			s.view.follow, s.view.bottom = false, false
 		} else {
 			s.jumpBottom()
@@ -302,6 +306,15 @@ func (s *session) accept() (quit bool) {
 	if p.command {
 		return s.execute(query)
 	}
+	if p.filter {
+		s.search.restore()
+		if query != "" {
+			if err := s.search.filterHistory.Add(query); err != nil {
+				s.search.warning = fmt.Sprintf("history: %v", err)
+			}
+		}
+		return s.applyFilter(query)
+	}
 	if query == "" {
 		query = s.search.original.query
 	}
@@ -334,10 +347,12 @@ func (s *session) execute(input string) (quit bool) {
 	}
 	s.search.message = result.message
 	switch {
+	case result.filter:
+		return s.applyFilter(result.query)
 	case result.line > 0:
 		s.search.matched, s.view.follow = false, false
 		s.clearPending()
-		s.pendingLine = result.line
+		s.jumpLine(result.line)
 	case result.action == keybind.Bottom:
 		s.search.matched = false
 		s.jumpBottom()
@@ -354,10 +369,18 @@ func (s *session) execute(input string) (quit bool) {
 	return false
 }
 
+// applyFilter sets or clears the filter.
+func (s *session) applyFilter(query string) (quit bool) {
+	if err := s.setFilter(query); err != nil {
+		s.search.message = fmt.Sprintf("Filter: %v", err)
+	}
+	return false
+}
+
 // preview searches as the prompt is typed, with incremental search.
 func (s *session) preview() {
 	p := s.search.prompt
-	if p == nil || p.command || !s.IncrementalSearch {
+	if p == nil || p.command || p.filter || !s.IncrementalSearch {
 		return
 	}
 	s.clearPending()

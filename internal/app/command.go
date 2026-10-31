@@ -13,6 +13,8 @@ type commandResult struct {
 	action  keybind.Action
 	line    int
 	message string
+	filter  bool // set the filter to query, or clear it when query is empty
+	query   string
 }
 
 // optionName resolves a boolean :set option or its vim short name, returning
@@ -39,8 +41,16 @@ func (a *App) command(input string) (commandResult, error) {
 	if len(fields) == 0 {
 		return commandResult{}, nil
 	}
+	if name, pattern, _ := strings.Cut(strings.TrimLeft(input, " \t"), " "); name == "filter" {
+		if pattern = strings.TrimSpace(pattern); pattern == "" {
+			return commandResult{}, fmt.Errorf("filter requires a pattern; :nofilter clears it")
+		}
+		return commandResult{filter: true, query: pattern}, nil
+	}
 	if len(fields) == 1 {
 		switch fields[0] {
+		case "nofilter":
+			return commandResult{filter: true}, nil
 		case "q", "quit":
 			return commandResult{quit: true}, nil
 		case "top":

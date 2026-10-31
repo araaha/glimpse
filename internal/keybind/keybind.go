@@ -30,6 +30,7 @@ const (
 	SearchNext         Action = "search-next"
 	SearchPrevious     Action = "search-previous"
 	CommandInput       Action = "command"
+	FilterInput        Action = "filter"
 	ToggleWrap         Action = "toggle-wrap"
 	ScrollLeft         Action = "scroll-left"
 	ScrollRight        Action = "scroll-right"
@@ -92,6 +93,7 @@ func Defaults() []Binding {
 		{SearchNext, []Key{"n"}},
 		{SearchPrevious, []Key{"N"}},
 		{CommandInput, []Key{":"}},
+		{FilterInput, []Key{"&"}},
 		{ToggleWrap, []Key{"w"}},
 		{ScrollLeft, []Key{"h"}},
 		{ScrollLeft, []Key{"<Left>"}},
@@ -302,6 +304,7 @@ var Descriptions = map[Action]string{
 	SearchNext:         "repeat the search",
 	SearchPrevious:     "repeat the search in the opposite direction",
 	CommandInput:       "enter a : command",
+	FilterInput:        "show only lines matching a pattern; empty shows every line",
 	ToggleWrap:         "toggle line wrapping",
 	ScrollLeft:         "scroll unwrapped lines left",
 	ScrollRight:        "scroll unwrapped lines right",

@@ -39,6 +39,7 @@ Table of Contents
     * [As your default pager](#as-your-default-pager)
     * [Keys](#keys)
     * [Searching](#searching)
+    * [Filtering](#filtering)
     * [Commands](#commands)
 * [Configuration](#configuration)
     * [Key bindings](#key-bindings)
@@ -125,6 +126,7 @@ configured.
 | `h`, Left / `l`, Right | Scroll unwrapped lines sideways |
 | `/` / `?` | Search forward / backward |
 | `n` / `N` | Repeat the search in the same / opposite direction |
+| `&` | Show only lines matching a pattern; empty shows every line |
 | `:` | Enter a command |
 | `F` | Toggle following the end of the input |
 | `w` | Toggle line wrapping |
@@ -152,8 +154,23 @@ force case-insensitive or case-sensitive matching.
 | `--regex=false` | Search for plain text |
 | `--highlight-search=false` | Do not highlight visible matches |
 
-Search and command history are saved in `$XDG_DATA_HOME/glimpse/`, usually
-`~/.local/share/glimpse/`.
+Search, filter and command history are saved in `$XDG_DATA_HOME/glimpse/`,
+usually `~/.local/share/glimpse/`.
+
+### Filtering
+
+`&pattern` shows only the lines that match, like `grep` inside the pager. The
+pattern works like a search, and line numbers, the statusline and `$line` keep
+each line's number in the input. Matching lines appear as they are found, so a
+filter on a huge file shows its first matches right away, and a filter on a
+followed log keeps up with new lines:
+
+```sh
+journalctl -f | glimpse --follow   # then &error
+```
+
+Searches, `G` and `:N` work within the matching lines. `&` and Enter, or
+`:nofilter`, shows every line again with the same line in view.
 
 ### Commands
 
@@ -161,6 +178,7 @@ Search and command history are saved in `$XDG_DATA_HOME/glimpse/`, usually
 | --- | --- |
 | `:N` | Go to line N |
 | `:top`, `:bottom` | Go to the first or last line |
+| `:filter PATTERN`, `:nofilter` | Show only matching lines, or every line again |
 | `:set OPTION`, `:set noOPTION` | Change an option, with vim's names: `ignorecase`, `smartcase`, `incsearch`, `hlsearch`, `magic`, `wrap`, `number`, `hex-colors` |
 | `:set jump-target=N` | Change where jumps land on screen |
 | `:set spool-quota=BYTES` | Raise the stream storage quota and resume reading |
@@ -290,7 +308,6 @@ Not supported
 
 - Windows
 - More than one file at a time
-- Filtering the view to matching lines
 - Syntax highlighting; use a preprocessor such as
   [bat](https://github.com/sharkdp/bat) and pipe its colored output in
 - Compressed files; decompress into a pipe, for example `zcat file.gz | glimpse`
@@ -313,7 +330,7 @@ based on their documentation for less 710, ov 0.55.0 and moor 2.19.6.
 | Rebind keys | ✓ | ✓ | ✓ | ✗ |
 | Spool long pipes to disk, losslessly | ✓ | ✗ | ✗ | ✗ |
 | Several files in one session | ✗ | ✓ | ✓ | ✓ |
-| Filter to matching lines | ✗ | ✓ | ✓ | ✓ |
+| Filter to matching lines | ✓ | ✓ | ✓ | ✓ |
 | Mouse scrolling | ✗ | ✓ | ✓ | ✓ |
 | Syntax highlighting | ✗ | ✗ | ✗ | ✓ |
 | Compressed files | ✗ | with `LESSOPEN` | ✓ | ✓ |

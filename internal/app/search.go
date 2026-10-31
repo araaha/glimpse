@@ -25,6 +25,7 @@ type searchState struct {
 	prompt         *prompt
 	history        search.History
 	commandHistory search.History
+	filterHistory  search.History
 	loaded         bool
 	query          string
 	backward       bool
@@ -76,8 +77,11 @@ func (s *searchState) begin(backward bool) {
 		if err == nil {
 			err = s.history.Load()
 			s.commandHistory.Path = filepath.Join(filepath.Dir(path), "command-history")
-			if commandErr := s.commandHistory.Load(); err == nil {
-				err = commandErr
+			s.filterHistory.Path = filepath.Join(filepath.Dir(path), "filter-history")
+			for _, history := range []*search.History{&s.commandHistory, &s.filterHistory} {
+				if historyErr := history.Load(); err == nil {
+					err = historyErr
+				}
 			}
 		}
 		if err != nil {
