@@ -1,0 +1,215 @@
+# glimpse configuration: every setting, at its default where it has one and
+# as an example otherwise.
+#
+# Copy this file to $XDG_CONFIG_HOME/glimpse/glimpse.toml (usually
+# ~/.config/glimpse/glimpse.toml) and uncomment what you want to change.
+# Lines starting with "#" and a letter or "[" are settings; "# " starts an
+# explanation. Check the result with: glimpse --check-config
+#
+# Command-line options override environment variables, which override this
+# file. Every setting that has an option can also be set as GLIMPSE_ and its
+# key in upper case, with dots and hyphens as underscores, for example
+# GLIMPSE_CMDHEIGHT=1 or GLIMPSE_SEARCH_SMART_CASE=true.
+#
+# Colors are ANSI palette names such as red or bright-blue, which follow the
+# terminal theme, or #RRGGBB values.
+
+# Footer layout:
+#    0  statusline, with a prompt row added on demand
+#    1  permanent statusline and prompt rows
+#   -1  one shared row; = toggles the statusline
+#   -2  like -1, with the statusline initially hidden
+#cmdheight = 0
+
+# Keep the view at the end of the input as it grows (toggle with F).
+#follow = false
+
+# Watch a file by its path, like tail -F, reopening it after rotation and
+# waiting while it is missing, instead of following the open file (tail -f).
+#follow-name = false
+
+# Screen line where search matches and line jumps land: 1 is the top, -1 the
+# bottom, and a fraction of the screen height such as 0.5 the middle.
+# Write fractions as 0.5 or ".5", not .5.
+#jump-target = 1
+
+# Name shown for the input in the statusline. Standard input defaults to
+# $MAN_PN, which man(1) sets to the page name.
+#label = ""
+
+# Allocation unit for buffered input, in bytes.
+#chunk-size = 65536
+
+[display]
+# Wrap long lines (toggle with w). Otherwise h and l scroll sideways.
+#wrap = true
+
+# Show a line number gutter (toggle with #).
+#line-numbers = false
+
+# Color each #RRGGBB code with the color it names (toggle with R). Needs a
+# truecolor terminal, detected from COLORTERM or a -direct or -truecolor TERM.
+#hex-colors = false
+
+# Width of East Asian ambiguous characters: 1 or 2 cells.
+#ambiguous-width = 1
+
+# Line number colors. The default is bright-black text.
+[display.line-number-style]
+#fg = "bright-black"
+#bg = ""
+
+# How unprintable characters are shown: one character, one cell wide (default
+# U+FFFD), in the text's colors unless set.
+[display.unprintable]
+#char = "�"
+#fg = ""
+#bg = ""
+
+[search]
+# Case: smart-case ignores it unless the query has an uppercase letter;
+# ignore-case always ignores it; case-sensitive always matches it. With none
+# set, searches match case. \c and \C in a search override these.
+#smart-case = false
+#ignore-case = false
+#case-sensitive = false
+
+# Preview matches while typing a search.
+#incremental = false
+
+# Highlight visible matches.
+#highlight = true
+
+# Regular expressions in RE2 syntax; false searches for plain text. \V in a
+# search makes the rest of it literal.
+#regex = true
+
+# Match colors. By default matches reverse the text's colors; these are an
+# example.
+[search.highlight-style]
+#fg = "black"
+#bg = "yellow"
+
+[storage]
+# Input bytes kept in memory before a stream spills to the spool file.
+#memory-budget = 67108864   # 64 MiB
+
+# Maximum spooled stream size. Reading pauses when it is full, until
+# :set spool-quota=BYTES raises it.
+#spool-quota = 1073741824   # 1 GiB
+
+# lossless keeps all input; rolling keeps only the most recent memory-budget
+# bytes of a stream, discarding older history.
+#retention = "lossless"
+
+# Directory for the spool and spilled index files, which are deleted as soon
+# as they are created. Empty means $XDG_CACHE_HOME/glimpse, or the system
+# temporary directory when that is unavailable.
+#spool-dir = ""
+
+# Row and line index bytes kept in memory, and their maximum size.
+#metadata-budget = 8388608   # 8 MiB
+#metadata-quota = 268435456  # 256 MiB
+
+[statusline]
+# Sections on each side, from mode, filename, search-results and
+# line-numbers. An empty list leaves a side empty.
+#left = ["mode", "filename"]
+#right = ["search-results", "line-numbers"]
+
+# Caps drawn before each right section and after each left section, such as
+# "" and "" with a Powerline or Nerd font. Empty draws none.
+#separator-open = ""
+#separator-close = ""
+
+# Colors of the rest of the bar.
+#fg = "white"
+#bg = "black"
+
+# How the file name is shown: full (~/.config/nvim/init.lua), short
+# (~/.c/n/init.lua) or tail (init.lua).
+#filename-style = "full"
+
+# Colors of each section. The mode section has its own table below.
+[statusline.styles]
+#filename = { fg = "blue" }
+#search-results = { fg = "black", bg = "white" }
+#line-numbers = { fg = "black", bg = "blue" }
+
+# The mode section can have its own colors in each mode: view, search,
+# follow and help. Unset modes use the mode section's colors, as they all do by
+# default; the per-mode colors here are examples.
+[statusline.styles.mode]
+#fg = "black"
+#bg = "blue"
+#view = { bg = "blue" }
+#search = { bg = "yellow" }
+#follow = { bg = "green" }
+#help = { bg = "magenta" }
+
+# Each action takes ONE key sequence, which replaces all of its default keys;
+# an empty list disables the action. Keys are written as in vim: <C-f>, <S-Tab>,
+# <M-b>, <Esc>, <Enter>, <Space> or " ". The defaults are listed below; where an
+# action has several, they are alternatives that a setting would replace.
+# glimpse reports unknown actions, invalid keys and sequences bound twice.
+# Press g? in glimpse to see the bindings in effect.
+[keybinds]
+#quit = ["q"]                       # also z q, <C-c>
+#cancel = ["<Esc>"]
+#top = ["g", "g"]                   # also <Home>
+#bottom = ["G"]                     # also <End>; a count N goes to line N
+#up = ["k"]                         # also <Up>
+#down = ["j"]                       # also <Down>
+#page-up = ["<C-b>"]                # also <PageUp>
+#page-down = ["<C-f>"]              # also <PageDown>, " "
+#half-page-up = ["<C-u>"]
+#half-page-down = ["<C-d>"]
+#scroll-left = ["h"]                # also <Left>
+#scroll-right = ["l"]               # also <Right>
+#follow = ["F"]
+#toggle-status = ["="]
+#toggle-wrap = ["w"]
+#toggle-line-numbers = ["#"]
+#toggle-hex-colors = ["R"]
+#search-forward = ["/"]
+#search-backward = ["?"]
+#search-next = ["n"]
+#search-previous = ["N"]
+#command = [":"]
+#edit = ["v"]
+#help = ["g", "?"]
+
+# In the search and : prompts:
+#search-accept = ["<Enter>"]                    # also <C-j>
+#search-cancel = ["<Esc>"]                      # also <C-c>, <C-g>
+#search-left = ["<Left>"]                       # also <C-b>
+#search-right = ["<Right>"]                     # also <C-f>
+#search-start = ["<Home>"]                      # also <C-a>
+#search-end = ["<End>"]                         # also <C-e>
+#search-word-left = ["<M-b>"]                   # also <C-Left>
+#search-word-right = ["<M-f>"]                  # also <C-Right>
+#search-backspace = ["<Backspace>"]             # also <C-h>
+#search-delete = ["<Delete>"]                   # also <C-d>
+#search-delete-word-backward = ["<C-w>"]        # also <M-Backspace>
+#search-delete-word-forward = ["<M-d>"]
+#search-clear-before = ["<C-u>"]
+#search-clear-after = ["<C-k>"]
+#search-history-previous = ["<Up>"]             # also <C-p>
+#search-history-next = ["<Down>"]               # also <C-n>
+#search-complete = ["<Tab>"]
+#search-complete-previous = ["<S-Tab>"]
+
+# Bind a key sequence to a shell command, run with sh -c. It takes over the
+# terminal until it exits, or runs detached with no input or output when
+# background = true. Its environment has $file, the file's absolute path
+# (empty for standard input), and $line, the line at the jump target. Quote
+# "$file" as in any shell script. The keys may not be bound to anything else.
+# There are none by default; for example:
+#[[run]]
+#keys = ["s", "h"]
+#command = 'nvim +$line "$file"'
+#
+#[[run]]
+#keys = ["s", "y"]
+#command = 'printf %s "$line" | wl-copy'
+#background = true

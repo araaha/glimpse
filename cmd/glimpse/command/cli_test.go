@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -135,6 +136,21 @@ func TestLabel(t *testing.T) {
 		root.SetArgs(tt.args)
 		if err := root.Execute(); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+// The reference glimpse.toml must stay valid with every setting uncommented,
+// so that it cannot mention options glimpse no longer reads.
+func TestReferenceConfig(t *testing.T) {
+	data, err := os.ReadFile("../../../glimpse.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := regexp.MustCompile(`(?m)^#([a-z\["])`).ReplaceAllString(string(data), "$1")
+	for _, config := range []string{string(data), settings} {
+		if out, err := execute(t, config, "--check-config"); err != nil || !strings.HasSuffix(out, "glimpse.toml: OK\n") {
+			t.Fatalf("check-config = %q, %v", out, err)
 		}
 	}
 }
