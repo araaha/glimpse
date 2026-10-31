@@ -14,6 +14,10 @@
 
 glimpse is a pager, like less. It stays responsive on large files and streams with a vim-like interface.
 
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/e8d3d499-b625-42f8-b3af-0c94ee62ff50" alt="glimpse searching, filtering and following a stream" width="100%">
+</div>
+
 Highlights
 ----------
 
@@ -168,7 +172,6 @@ Nushell completions in `completions/`, and the reference configuration
 go install github.com/araaha/glimpse/cmd/glimpse@latest
 ```
 
-> [!NOTE]
 > This installs the binary only. Generate completions with
 > `glimpse --completion bash|zsh|fish|nushell`.
 </details>
