@@ -11,8 +11,6 @@
 glimpse is a pager. It
 stays responsive on large files and streams.
 
-<img src="docs/demo.gif" alt="glimpse demo" width="720">
-
 Highlights
 ----------
 
