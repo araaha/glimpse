@@ -157,11 +157,12 @@ homebrew_casks:
       artifact "completions/glimpse.nu", target: "#{HOMEBREW_PREFIX}/share/nushell/vendor/autoload/glimpse.nu"
     # The binary is not signed or notarized, so macOS would refuse to run it
     # ("glimpse is damaged and can't be opened") without this.
+    # install_steps (GoReleaser 2.19+) is Homebrew's declarative DSL, not Ruby.
     hooks:
       post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/glimpse"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/glimpse"]
           end
 
 # The source tarball the glimpse-pager AUR package builds from.
@@ -174,7 +175,14 @@ checksum:
 changelog:
   sort: asc
   filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
+    exclude: ["^docs:", "^test:", "^ci:", "^chore:", "^build:", "^refactor:", "^Merge "]
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?:'
+      order: 1
+    - title: Performance
+      regexp: '^perf(\(.+\))?:'
+      order: 2
