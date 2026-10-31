@@ -14,9 +14,7 @@
 
 glimpse is a pager, like less. It stays responsive on large files and streams with a vim-like interface.
 
-<div align="center">
-  <img src="https://github.com/user-attachments/assets/e8d3d499-b625-42f8-b3af-0c94ee62ff50" alt="glimpse searching, filtering and following a stream" width="100%">
-</div>
+https://github.com/user-attachments/assets/623f123c-b1f9-46aa-8c1c-54fe8412d0b7
 
 Highlights
 ----------
