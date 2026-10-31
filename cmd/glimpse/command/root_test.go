@@ -368,7 +368,6 @@ func TestConfigDir(t *testing.T) {
 	home := t.TempDir()
 	config := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	for _, tt := range []struct{ xdg, want string }{
 		{config, config},
 		{"", filepath.Join(home, ".config")},

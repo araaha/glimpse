@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [freebsd/amd64, openbsd/amd64, linux/arm64, windows/amd64]
+        target: [freebsd/amd64, openbsd/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

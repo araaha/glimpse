@@ -7,8 +7,8 @@ import (
 )
 
 // TempFile is a private temporary file. It is unlinked as soon as it is
-// created, so it never outlives glimpse, even when glimpse is killed. Where
-// an open file cannot be unlinked (Windows), Close removes it instead.
+// created, so it never outlives glimpse, even when glimpse is killed. If
+// unlinking fails, Close removes it instead.
 type TempFile struct {
 	*os.File
 	linked bool

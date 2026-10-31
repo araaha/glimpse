@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 
 	"golang.org/x/term"
 )
@@ -43,9 +42,5 @@ func checkInteractiveTerminal(output io.Writer, isTerminal func(int) bool, openT
 }
 
 func openControllingTerminal() (terminalHandle, error) {
-	device := "/dev/tty"
-	if runtime.GOOS == "windows" {
-		device = "CONIN$"
-	}
-	return os.OpenFile(device, os.O_RDWR, 0)
+	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
 }

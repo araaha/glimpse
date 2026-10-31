@@ -164,8 +164,7 @@ func loadConfig(config *viper.Viper, cmd *cobra.Command, configFile string) erro
 }
 
 // configDir follows the XDG layout on every platform, as documented; unlike
-// os.UserConfigDir, it does not move the file to ~/Library on macOS or
-// %AppData% on Windows.
+// os.UserConfigDir, it does not move the file to ~/Library on macOS.
 func configDir() (string, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(dir) {
 		return dir, nil
