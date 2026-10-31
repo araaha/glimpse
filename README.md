@@ -195,7 +195,7 @@ Search and command history are saved in `$XDG_DATA_HOME/glimpse/`, usually
 | `:N` | Go to line N |
 | `:top`, `:bottom` | Go to the first or last line |
 | `:set OPTION`, `:set noOPTION` | Change an option, with vim's names: `ignorecase`, `smartcase`, `incsearch`, `hlsearch`, `magic`, `wrap`, `number`, `hex-colors` |
-| `:set jump-target=N` | Change where jumps land on screen |
+| `:set jump-target=N` | Change where jumps land: `0` bottom, `0.5` middle, `1` top |
 | `:set spool-quota=BYTES` | Raise the stream storage quota and resume reading |
 | `:q`, `:quit` | Quit |
 
@@ -215,7 +215,7 @@ default, and is a good starting point. The packages install it under
 `/usr/share/doc/`. A short example:
 
 ```toml
-# Land searches and line jumps in the middle of the screen.
+# Land searches and line jumps in the middle (0 = bottom, 1 = top).
 jump-target = 0.5
 
 [display]
