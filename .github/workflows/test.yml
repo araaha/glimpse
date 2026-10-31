@@ -67,19 +67,19 @@ jobs:
           args: release --snapshot --clean
       - name: Install the .deb on Ubuntu
         run: |
-          sudo apt-get install -y ./dist/glimpse_*_linux_amd64.deb
+          sudo apt-get install -y ./dist/glimpse_linux_amd64.deb
           glimpse --version
           test "$(printf 'a\nb\n' | glimpse | wc -l)" = 2
       - name: Install the .deb on Debian
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" debian:stable sh -ec '
             apt-get update -qq
-            apt-get install -y -qq /dist/glimpse_*_linux_amd64.deb
+            apt-get install -y -qq /dist/glimpse_linux_amd64.deb
             glimpse --version'
       - name: Install the .rpm on Fedora
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" fedora:latest sh -ec '
-            dnf install -y -q /dist/glimpse_*_linux_amd64.rpm
+            dnf install -y -q /dist/glimpse_linux_amd64.rpm
             glimpse --version'
       - name: Build the AUR packages on Arch Linux
         run: |

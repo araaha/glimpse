@@ -1,32 +1,37 @@
 <div align="center">
+  <img src="docs/logo.svg" alt="" width="128" height="128">
   <h1>glimpse</h1>
   <p>More than less. Just a glimpse</p>
-  <a href="https://github.com/araaha/glimpse/actions/workflows/test.yml"><img src="https://github.com/araaha/glimpse/actions/workflows/test.yml/badge.svg?branch=master" alt="Build status"></a>
-  <a href="https://github.com/araaha/glimpse/releases"><img src="https://img.shields.io/github/v/release/araaha/glimpse" alt="Latest release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/araaha/glimpse" alt="License"></a>
+
+  [![Linux](https://img.shields.io/badge/Linux-131415?style=for-the-badge&logo=linux&logoColor=white)](#installation)
+  [![macOS](https://img.shields.io/badge/macOS-FFFFFF?style=for-the-badge&logo=apple&logoColor=black)](#installation)
+  [![Build status](https://img.shields.io/github/actions/workflow/status/araaha/glimpse/test.yml?branch=master&style=for-the-badge&logo=github&logoColor=white&label=build)](https://github.com/araaha/glimpse/actions/workflows/test.yml)
+  [![Latest release](https://img.shields.io/github/v/release/araaha/glimpse?style=for-the-badge&logo=github&logoColor=white)](https://github.com/araaha/glimpse/releases)
+  [![License](https://img.shields.io/github/license/araaha/glimpse?style=for-the-badge&logo=gnu&logoColor=white)](LICENSE)
+
+  <a href="#installation">Install</a> · <a href="#usage">Usage</a> · <a href="#configuration">Configuration</a> · <a href="#following-files">Following files</a> · <a href="#large-input-and-memory">Large input</a>
 </div>
 
----
-
-glimpse is a pager. It
-stays responsive on large files and streams.
+glimpse is a pager. It stays responsive on large files and streams.
 
 Highlights
 ----------
 
-- **Responsive on large inputs** // Regular files are read in place instead of
+- **Responsive on large inputs** Regular files are read in place instead of
   loaded, so huge files, endless streams and single lines that never end stay
   quick to scroll and search
-- **Vim-like** // `/` regular expression search, `:` commands with `:set` and autocomplete, `gg`,
+- **Vim-like** `/` regular expression search, `:` commands with `:set` and autocomplete, `gg`,
   `G`, counts, and keys like `zq` you can rebind in a TOML file
-- **Scriptable** // Bind keys to shell commands that receive the current file
+- **Scriptable** Bind keys to shell commands that receive the current file
   and line
-- **Batteries-included** // Comes with built-in completions for Bash, Zsh, Fish and Nushell
+- **Batteries-included** Comes with built-in completions for Bash, Zsh, Fish and Nushell
 
 Table of Contents
 -----------------
 
 * [Installation](#installation)
+    * [Package managers](#package-managers)
+    * [Other methods](#other-methods)
 * [Usage](#usage)
     * [As your default pager](#as-your-default-pager)
     * [Keys](#keys)
@@ -46,64 +51,133 @@ Installation
 
 glimpse is tested on Linux and macOS and builds on FreeBSD and OpenBSD.
 
-### Arch Linux
+> [!WARNING]
+> Windows is not supported.
 
-From the AUR, built from source or as the release binary:
+### Package managers
+
+<details>
+<summary><b>Arch Linux (AUR)</b></summary>
+<br>
+
+Build it from source with `glimpse-pager`, or install the release binary with
+`glimpse-pager-bin`, using your AUR helper:
 
 ```sh
 yay -S glimpse-pager        # or glimpse-pager-bin
 ```
 
-Both install `/usr/bin/glimpse`, so they conflict with the unrelated AUR
-package named `glimpse`.
-
-### Debian and Ubuntu
-
-Download the `.deb` for your architecture (`amd64` or `arm64`) from the
-[latest release](https://github.com/araaha/glimpse/releases/latest) and install
-it:
+OR
 
 ```sh
-sudo apt install ./glimpse_*_linux_amd64.deb
+paru -S glimpse-pager       # or glimpse-pager-bin
 ```
 
-### Fedora
+> [!WARNING]
+> Both install `/usr/bin/glimpse`, so they conflict with the unrelated AUR
+> package named `glimpse`.
+</details>
+
+<details>
+<summary><b>macOS (Homebrew)</b></summary>
+<br>
 
 ```sh
-sudo dnf install ./glimpse_*_linux_amd64.rpm
+brew install --cask araaha/tap/glimpse
 ```
 
-using the `.rpm` from the
-[latest release](https://github.com/araaha/glimpse/releases/latest).
+This installs the binary, the man page and the bash, zsh, fish and Nushell
+completions.
+</details>
 
-### Nix
+<details>
+<summary><b>Debian / Ubuntu (.deb)</b></summary>
+<br>
 
 ```sh
-nix run github:araaha/glimpse -- FILE           # try it
-nix profile install github:araaha/glimpse       # install it
+curl -LO https://github.com/araaha/glimpse/releases/latest/download/glimpse_linux_amd64.deb
+sudo apt install ./glimpse_linux_amd64.deb
+rm glimpse_linux_amd64.deb
 ```
 
-In a flake-based NixOS or Home Manager configuration, add the flake as an input
-and use `inputs.glimpse.packages.${pkgs.system}.default`.
+*(On ARM64, replace `amd64` with `arm64`.)*
+</details>
 
-### Binary releases
+<details>
+<summary><b>Fedora (.rpm)</b></summary>
+<br>
+
+```sh
+sudo dnf install https://github.com/araaha/glimpse/releases/latest/download/glimpse_linux_amd64.rpm
+```
+
+*(On ARM64, replace `amd64` with `arm64`.)*
+</details>
+
+<details>
+<summary><b>Nix</b></summary>
+<br>
+
+**Try it without installing:**
+
+```sh
+nix run github:araaha/glimpse -- FILE
+```
+
+**Install it to your user profile:**
+
+```sh
+nix profile install github:araaha/glimpse
+```
+
+**In a flake-based configuration**, add the flake to your inputs:
+
+```nix
+glimpse.url = "github:araaha/glimpse";
+```
+
+Then add the package with Home Manager *(pass `inputs` to modules via `extraSpecialArgs`)*:
+
+```nix
+home.packages = [ inputs.glimpse.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+```
+
+or system-wide on NixOS *(pass `inputs` via `specialArgs`)*:
+
+```nix
+environment.systemPackages = [ inputs.glimpse.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+```
+</details>
+
+### Other methods
+
+<details>
+<summary><b>Binary releases</b></summary>
+<br>
 
 Download an archive for your platform from the
 [releases page](https://github.com/araaha/glimpse/releases). Each one contains
 the `glimpse` binary, the man page `docs/glimpse.1`, bash, zsh, fish and
 Nushell completions in `completions/`, and the reference configuration
 `glimpse.toml`.
+</details>
 
-### Using Go
+<details>
+<summary><b>Using Go</b></summary>
+<br>
 
 ```sh
 go install github.com/araaha/glimpse/cmd/glimpse@latest
 ```
 
-This installs the binary only. Generate completions with
-`glimpse --completion bash|zsh|fish|nushell`.
+> [!NOTE]
+> This installs the binary only. Generate completions with
+> `glimpse --completion bash|zsh|fish|nushell`.
+</details>
 
-### From source
+<details>
+<summary><b>From source</b></summary>
+<br>
 
 Building needs Go 1.27 or later.
 
@@ -117,6 +191,7 @@ This installs the binary, the man page and the bash, zsh, fish and Nushell
 completions under `/usr/local`.
 Set `PREFIX` to install elsewhere, or `DESTDIR` for a staged install, and use
 `make uninstall` to remove them.
+</details>
 
 Usage
 -----
@@ -127,13 +202,17 @@ command | glimpse
 ```
 
 With no file, or `-`, glimpse reads standard input. Keys are read from the
-terminal, so piped input works. When standard output is not a terminal, glimpse
-copies its input unchanged, like `cat`.
+terminal, so piped input works.
 
-While piped input is still silent, glimpse waits up to half a second before
-taking over the screen, and for as long as another program has turned off
-terminal echo. A password prompt such as the one in `sudo journalctl | glimpse`
-can be answered first.
+> [!NOTE]
+> When standard output is not a terminal, glimpse copies its input unchanged,
+> like `cat`.
+
+> [!TIP]
+> While piped input is still silent, glimpse waits up to half a second before
+> taking over the screen, and for as long as another program has turned off
+> terminal echo. A password prompt such as the one in
+> `sudo journalctl | glimpse` can be answered first.
 
 ### As your default pager
 
@@ -147,39 +226,43 @@ For man pages, the statusline shows the page name, taken from `$MAN_PN`.
 
 ### Keys
 
-Press `g?` inside glimpse for every binding in effect, including the ones you
-configured.
+> [!TIP]
+> Press <kbd>g</kbd> <kbd>?</kbd> inside glimpse for every binding in effect,
+> including the ones you configured.
 
 | Keys | Action |
 | --- | --- |
-| `j`, Down / `k`, Up | Scroll one row |
-| Ctrl-F, PageDown, Space / Ctrl-B, PageUp | Scroll one screen |
-| Ctrl-D / Ctrl-U | Scroll half a screen |
-| `gg`, Home / `G`, End | Go to the first / last line; `NG` goes to line N |
-| `h`, Left / `l`, Right | Scroll unwrapped lines sideways |
-| `/` / `?` | Search forward / backward |
-| `n` / `N` | Repeat the search in the same / opposite direction |
-| `&` | Show only lines matching a pattern; empty shows every line |
-| `m` then a letter / `'` then a letter | Mark the current line / go to a mark |
-| `''` | Go back to where the last jump started |
-| `:` | Enter a command |
-| `F` | Toggle following the end of the input |
-| `w` | Toggle line wrapping |
-| `#` | Toggle line numbers |
-| `R` | Toggle coloring `#RRGGBB` codes in their own color |
-| `v` | Edit the file in `$VISUAL` or `$EDITOR` at the current line |
-| `=` | Toggle the statusline (with `--cmdheight` -1 or -2) |
-| `g?` | Show all bindings |
-| Esc | Cancel a pending key sequence or search |
-| `q`, `zq`, Ctrl-C | Quit |
+| <kbd>j</kbd>, <kbd>↓</kbd> / <kbd>k</kbd>, <kbd>↑</kbd> | Scroll one row |
+| <kbd>Ctrl</kbd>+<kbd>F</kbd>, <kbd>PageDown</kbd>, <kbd>Space</kbd> / <kbd>Ctrl</kbd>+<kbd>B</kbd>, <kbd>PageUp</kbd> | Scroll one screen |
+| <kbd>Ctrl</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>U</kbd> | Scroll half a screen |
+| <kbd>g</kbd> <kbd>g</kbd>, <kbd>Home</kbd> / <kbd>G</kbd>, <kbd>End</kbd> | Go to the first / last line; `NG` goes to line N |
+| <kbd>h</kbd>, <kbd>←</kbd> / <kbd>l</kbd>, <kbd>→</kbd> | Scroll unwrapped lines sideways |
+| <kbd>/</kbd> / <kbd>?</kbd> | Search forward / backward |
+| <kbd>n</kbd> / <kbd>N</kbd> | Repeat the search in the same / opposite direction |
+| <kbd>&</kbd> | Show only lines matching a pattern; empty shows every line |
+| <kbd>m</kbd> then a letter / <kbd>'</kbd> then a letter | Mark the current line / go to a mark |
+| <kbd>'</kbd> <kbd>'</kbd> | Go back to where the last jump started |
+| <kbd>:</kbd> | Enter a command |
+| <kbd>F</kbd> | Toggle following the end of the input |
+| <kbd>w</kbd> | Toggle line wrapping |
+| <kbd>#</kbd> | Toggle line numbers |
+| <kbd>R</kbd> | Toggle coloring `#RRGGBB` codes in their own color |
+| <kbd>v</kbd> | Edit the file in `$VISUAL` or `$EDITOR` at the current line |
+| <kbd>=</kbd> | Toggle the statusline (with `--cmdheight` -1 or -2) |
+| <kbd>g</kbd> <kbd>?</kbd> | Show all bindings |
+| <kbd>Esc</kbd> | Cancel a pending key sequence or search |
+| <kbd>q</kbd>, <kbd>z</kbd> <kbd>q</kbd>, <kbd>Ctrl</kbd>+<kbd>C</kbd> | Quit |
 
 ### Searching
 
 Searches are regular expressions in Go's
 [RE2 syntax](https://github.com/google/re2/wiki/Syntax), matched against the
 text without its colors, so a search finds words in colored output and man
-pages. As in vim, `\V` makes the rest of a pattern literal and `\c` / `\C`
-force case-insensitive or case-sensitive matching.
+pages.
+
+> [!TIP]
+> As in vim, `\V` makes the rest of a pattern literal and `\c` / `\C` force
+> case-insensitive or case-sensitive matching.
 
 | Option | Effect |
 | --- | --- |
@@ -207,6 +290,9 @@ journalctl -f | glimpse --follow   # then &error
 Searches, `G` and `:N` work within the matching lines. `&` and Enter, or
 `:nofilter`, shows every line again with the same line in view.
 
+> [!NOTE]
+> Filtering is not available with `--retention=rolling`.
+
 ### Commands
 
 | Command | Action |
@@ -220,7 +306,7 @@ Searches, `G` and `:N` work within the matching lines. `&` and Enter, or
 | `:set spool-quota=BYTES` | Raise the stream storage quota and resume reading |
 | `:q`, `:quit` | Quit |
 
-Tab completes commands and option names.
+<kbd>Tab</kbd> completes commands and option names.
 
 Configuration
 -------------
@@ -254,14 +340,20 @@ half-page-down = ["d"]
 half-page-up = ["u"]
 ```
 
-`glimpse --check-config` validates the file, including misspelled option
-names, and prints which file it read. The [man page](docs/glimpse.1) lists every
-key, including the statusline layout and colors.
+> [!TIP]
+> `glimpse --check-config` validates the file, including misspelled option
+> names, and prints which file it read.
+
+The [man page](docs/glimpse.1) lists every key, including the statusline layout
+and colors.
 
 ### Key bindings
 
-Each entry under `[keybinds]` is **one key sequence**, and it replaces all of
-that action's default keys. An empty array unbinds the action:
+> [!IMPORTANT]
+> Each entry under `[keybinds]` is **one key sequence**, and it replaces all of
+> that action's default keys.
+
+An empty array unbinds the action:
 
 ```toml
 [keybinds]
@@ -295,10 +387,13 @@ command = 'printf %s "$line" | wl-copy'
 background = true
 ```
 
-The variables are never pasted into the command text, so file names with spaces
-or quotes are safe as long as you quote `"$file"`. If a command fails, its exit
-status is shown. When a foreground command saves the file by renaming a new
-file over it, as vim does, glimpse reopens the new file.
+> [!WARNING]
+> The variables are never pasted into the command text, so file names with
+> spaces or quotes are safe as long as you quote `"$file"`.
+
+If a command fails, its exit status is shown. When a foreground command saves
+the file by renaming a new file over it, as vim does, glimpse reopens the new
+file.
 
 Following files
 ---------------
@@ -340,13 +435,15 @@ For a stream that never ends, `--retention=rolling` keeps only the most recent
 journalctl -f | glimpse --follow --retention=rolling
 ```
 
+> [!CAUTION]
+> Older input is discarded and cannot be scrolled back to.
+
 The line and row index has its own limits, `--metadata-budget` and
 `--metadata-quota`.
 
 Not supported
 -------------
 
-- Windows
 - More than one file at a time
 - Syntax highlighting; use a preprocessor such as
   [bat](https://github.com/sharkdp/bat) and pipe its colored output in

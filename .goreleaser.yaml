@@ -47,6 +47,9 @@ nfpms:
     description: A terminal pager for files and streams
     license: GPL-3.0-or-later
     formats: [deb, rpm]
+    # No version in the name, so releases/latest/download/glimpse_linux_amd64.deb
+    # always points at the newest package.
+    file_name_template: "{{ .PackageName }}_{{ .Os }}_{{ .Arch }}"
     section: utils
     contents:
       - src: docs/glimpse.1
