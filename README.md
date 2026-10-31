@@ -12,7 +12,7 @@
   <a href="#installation">Install</a> · <a href="#usage">Usage</a> · <a href="#configuration">Configuration</a> · <a href="#following-files">Following files</a> · <a href="#large-input-and-memory">Large input</a>
 </div>
 
-glimpse is a pager. It stays responsive on large files and streams.
+glimpse is a pager, like less. It stays responsive on large files and streams with a vim-like interface.
 
 Highlights
 ----------
@@ -72,8 +72,6 @@ OR
 ```sh
 paru -S glimpse-pager       # or glimpse-pager-bin
 ```
-
-> [!WARNING]
 > Both install `/usr/bin/glimpse`, so they conflict with the unrelated AUR
 > package named `glimpse`.
 </details>
