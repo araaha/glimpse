@@ -51,7 +51,7 @@ func TestVersion(t *testing.T) {
 }
 
 func TestCompletion(t *testing.T) {
-	for shell, want := range map[string]string{"bash": "__start_glimpse", "zsh": "#compdef glimpse", "fish": "complete -c glimpse", "powershell": "Register-ArgumentCompleter", "nushell": `export extern "glimpse"`} {
+	for shell, want := range map[string]string{"bash": "__start_glimpse", "zsh": "#compdef glimpse", "fish": "complete -c glimpse", "nushell": `export extern "glimpse"`} {
 		out, err := execute(t, "", "--completion", shell)
 		if err != nil || !strings.Contains(out, want) {
 			t.Fatalf("%s completion lacks %q: %v", shell, want, err)

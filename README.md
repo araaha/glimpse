@@ -53,7 +53,6 @@ Installation
 ------------
 
 glimpse is tested on Linux and macOS and builds on FreeBSD and OpenBSD.
-Windows is not supported.
 
 ### Binary releases
 

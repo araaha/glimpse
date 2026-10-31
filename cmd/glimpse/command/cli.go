@@ -59,12 +59,10 @@ func writeCompletion(root *cobra.Command, out io.Writer, shell string) error {
 		return root.GenZshCompletion(out)
 	case "fish":
 		return root.GenFishCompletion(out, true)
-	case "powershell":
-		return root.GenPowerShellCompletionWithDesc(out)
 	case "nushell":
 		return writeNushellCompletion(root, out)
 	}
-	return fmt.Errorf("unknown completion shell %q (use bash, zsh, fish, powershell, or nushell)", shell)
+	return fmt.Errorf("unknown completion shell %q (use bash, zsh, fish, or nushell)", shell)
 }
 
 // checkConfig validates the configuration as startup does, without a terminal
