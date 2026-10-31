@@ -50,11 +50,15 @@ func TestVersion(t *testing.T) {
 }
 
 func TestCompletion(t *testing.T) {
-	for shell, want := range map[string]string{"bash": "__start_glimpse", "zsh": "#compdef glimpse", "fish": "complete -c glimpse", "powershell": "Register-ArgumentCompleter"} {
+	for shell, want := range map[string]string{"bash": "__start_glimpse", "zsh": "#compdef glimpse", "fish": "complete -c glimpse", "powershell": "Register-ArgumentCompleter", "nushell": `export extern "glimpse"`} {
 		out, err := execute(t, "", "--completion", shell)
 		if err != nil || !strings.Contains(out, want) {
 			t.Fatalf("%s completion lacks %q: %v", shell, want, err)
 		}
+	}
+	// Nushell splits a declared --wrap=false into two arguments.
+	if out, _ := execute(t, "", "--completion", "nushell"); strings.Contains(out, "--wrap") || !strings.Contains(out, "--retention: string@") {
+		t.Fatalf("nushell extern declares boolean flags or lacks value completion:\n%s", out)
 	}
 	// Completion scripts call back into the hidden __complete command.
 	out, err := execute(t, "", "__complete", "--follow-n")

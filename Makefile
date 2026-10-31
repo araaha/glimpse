@@ -29,13 +29,16 @@ install: build
 	install -Dm644 docs/glimpse.1 $(DESTDIR)$(MANDIR)/man1/glimpse.1
 	install -d $(DESTDIR)$(DATADIR)/bash-completion/completions \
 		$(DESTDIR)$(DATADIR)/zsh/site-functions \
-		$(DESTDIR)$(DATADIR)/fish/vendor_completions.d
+		$(DESTDIR)$(DATADIR)/fish/vendor_completions.d \
+		$(DESTDIR)$(DATADIR)/nushell/vendor/autoload
 	$(abspath $(BIN)) --completion bash > $(DESTDIR)$(DATADIR)/bash-completion/completions/glimpse
 	$(abspath $(BIN)) --completion zsh > $(DESTDIR)$(DATADIR)/zsh/site-functions/_glimpse
 	$(abspath $(BIN)) --completion fish > $(DESTDIR)$(DATADIR)/fish/vendor_completions.d/glimpse.fish
+	$(abspath $(BIN)) --completion nushell > $(DESTDIR)$(DATADIR)/nushell/vendor/autoload/glimpse.nu
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/glimpse $(DESTDIR)$(MANDIR)/man1/glimpse.1 \
 		$(DESTDIR)$(DATADIR)/bash-completion/completions/glimpse \
 		$(DESTDIR)$(DATADIR)/zsh/site-functions/_glimpse \
-		$(DESTDIR)$(DATADIR)/fish/vendor_completions.d/glimpse.fish
+		$(DESTDIR)$(DATADIR)/fish/vendor_completions.d/glimpse.fish \
+		$(DESTDIR)$(DATADIR)/nushell/vendor/autoload/glimpse.nu

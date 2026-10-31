@@ -88,7 +88,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.SetVersionTemplate("glimpse {{.Version}}\n")
 	root.PersistentFlags().StringVar(&configFile, "config", "", "TOML config file (default: $XDG_CONFIG_HOME/glimpse/glimpse.toml)")
 	root.Flags().Bool("check-config", false, "validate the configuration (including unknown keys) and exit")
-	root.Flags().String("completion", "", "print a completion script for bash, zsh, fish, or powershell and exit")
+	root.Flags().String("completion", "", "print a completion script for bash, zsh, fish, powershell, or nushell and exit")
 	root.Flags().String("label", "", "name shown for the input in the statusline (stdin defaults to $MAN_PN)")
 	root.Flags().Int("chunk-size", 64*1024, "input storage chunk size in bytes")
 	root.Flags().Bool("follow", false, "follow the end of incoming input (toggle with F)")
@@ -116,7 +116,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	// Value completion: fixed choices, paths where they apply, and nothing
 	// (rather than file names) for numbers and labels.
 	for flag, values := range map[string][]cobra.Completion{
-		"completion":      {"bash", "zsh", "fish", "powershell"},
+		"completion":      {"bash", "zsh", "fish", "powershell", "nushell"},
 		"retention":       {"lossless\tpause input when the spool quota is full", "rolling\tdrop the oldest input instead"},
 		"ambiguous-width": {"1", "2"},
 		"cmdheight":       {"-2\tlike -1, statusline initially hidden", "-1\ttoggleable status/prompt row", "0\tstatus with on-demand search row", "1\tpermanent status and search rows"},

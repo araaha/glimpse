@@ -9,6 +9,7 @@ before:
     - sh -c 'go run ./cmd/glimpse --completion bash > completions/glimpse.bash'
     - sh -c 'go run ./cmd/glimpse --completion zsh > completions/_glimpse'
     - sh -c 'go run ./cmd/glimpse --completion fish > completions/glimpse.fish'
+    - sh -c 'go run ./cmd/glimpse --completion nushell > completions/glimpse.nu'
 
 builds:
   - main: ./cmd/glimpse
