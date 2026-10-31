@@ -38,6 +38,7 @@ const (
 	ScrollRight        Action = "scroll-right"
 	ToggleLineNumbers  Action = "toggle-line-numbers"
 	ToggleHexColors    Action = "toggle-hex-colors"
+	ToggleHighlight    Action = "toggle-highlight"
 	Edit               Action = "edit"
 	Help               Action = "help"
 	Insert             Action = "insert"
@@ -109,6 +110,7 @@ func Defaults() []Binding {
 		{ScrollRight, []Key{"<Right>"}},
 		{ToggleLineNumbers, []Key{"#"}},
 		{ToggleHexColors, []Key{"R"}},
+		{ToggleHighlight, []Key{"t", "s"}},
 		{Edit, []Key{"v"}},
 		{Help, []Key{"g", "?"}},
 	}
@@ -320,6 +322,7 @@ var Descriptions = map[Action]string{
 	ScrollRight:        "scroll unwrapped lines right",
 	ToggleLineNumbers:  "toggle line numbers",
 	ToggleHexColors:    "toggle coloring #RRGGBB codes",
+	ToggleHighlight:    "toggle highlighting search matches",
 	Edit:               "edit the file at $line in $VISUAL or $EDITOR",
 	Help:               "toggle this help",
 	SearchCancel:       "cancel the prompt",

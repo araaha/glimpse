@@ -126,7 +126,8 @@ Match case exactly.
 Preview matches while typing a search or filter.
 .TP
 .BR \-\-highlight\-search =\fIbool\fP
-Highlight visible matches (default true).
+Highlight visible matches (default true; toggle with
+.BR ts ).
 .TP
 .BR \-\-regex =\fIbool\fP
 Treat searches as regular expressions (default true);
@@ -265,6 +266,10 @@ Toggle line numbers.
 Toggle coloring
 .BI # RRGGBB
 codes.
+.TP
+.B ts
+Toggle highlighting search and filter matches, like
+.BR ":set hlsearch" .
 .TP
 .B v
 Edit the file in
@@ -553,7 +558,8 @@ quit, cancel, top, bottom, up, down, page\-up, page\-down, half\-page\-up,
 half\-page\-down, follow, toggle\-status, search\-forward, search\-backward,
 search\-next, search\-previous, command, filter, set\-mark, jump\-to\-mark,
 toggle\-wrap, scroll\-left,
-scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, edit, help.
+scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, toggle\-highlight, edit,
+help.
 Prompt actions:
 search\-accept, search\-cancel, search\-left, search\-right, search\-start,
 search\-end, search\-word\-left, search\-word\-right, search\-backspace,

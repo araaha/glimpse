@@ -172,6 +172,7 @@
 #toggle-wrap = ["w"]
 #toggle-line-numbers = ["#"]
 #toggle-hex-colors = ["R"]
+#toggle-highlight = ["t", "s"]
 #search-forward = ["/"]
 #search-backward = ["?"]
 #search-next = ["n"]

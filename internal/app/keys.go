@@ -100,6 +100,9 @@ func (s *session) apply(commands []keybind.Command) (quit bool) {
 			return s.openPrompt(command)
 		case keybind.SearchNext, keybind.SearchPrevious:
 			s.repeatSearch(command.Action == keybind.SearchPrevious)
+		case keybind.ToggleHighlight:
+			// Unlike the toggles in move, this keeps the search and its match.
+			s.HighlightSearch = !s.HighlightSearch
 		case keybind.SetMark:
 			s.setMark(command.Text)
 		case keybind.JumpToMark:

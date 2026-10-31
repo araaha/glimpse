@@ -245,6 +245,7 @@ For man pages, the statusline shows the page name, taken from `$MAN_PN`.
 | <kbd>w</kbd> | Toggle line wrapping |
 | <kbd>#</kbd> | Toggle line numbers |
 | <kbd>R</kbd> | Toggle coloring `#RRGGBB` codes in their own color |
+| <kbd>t</kbd> <kbd>s</kbd> | Toggle highlighting search matches |
 | <kbd>v</kbd> | Edit the file in `$VISUAL` or `$EDITOR` at the current line |
 | <kbd>=</kbd> | Toggle the statusline (with `--cmdheight` -1 or -2) |
 | <kbd>g</kbd> <kbd>?</kbd> | Show all bindings |

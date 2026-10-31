@@ -230,3 +230,24 @@ func TestRunFilterNoPreviewWithoutIncremental(t *testing.T) {
 		t.Fatalf("highlights = %v", frame.Highlights)
 	}
 }
+
+// ts toggles highlighting, which n still searches without.
+func TestRunToggleHighlight(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	input := numberedLines(30, func(line int) bool { return line%5 == 0 })
+	viewer := startTestViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch}, input, 20, 6)
+	viewer.press("/")
+	viewer.typeText("hit")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return firstFrameLine("line05 hit")(frame) && highlightsAt(7, 3)(frame)
+	})
+	viewer.press("t", "s", "n")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return firstFrameLine("line10 hit")(frame) && len(frame.Highlights) == 0
+	})
+	viewer.press("t", "s")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return firstFrameLine("line10 hit")(frame) && highlightsAt(7, 3)(frame)
+	})
+}
