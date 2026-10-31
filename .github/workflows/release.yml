@@ -24,3 +24,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # SSH key of the AUR account that publishes glimpse-pager and
+          # glimpse-pager-bin.
+          AUR_KEY: ${{ secrets.AUR_KEY }}

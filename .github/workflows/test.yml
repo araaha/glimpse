@@ -36,3 +36,66 @@ jobs:
           go vet ./...
         env:
           TARGET: ${{ matrix.target }}
+
+  # Build the flake, which also checks vendorHash against go.sum.
+  nix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+      - run: nix flake check --print-build-logs
+      - run: nix build --print-build-logs
+      - run: ./result/bin/glimpse --version
+
+  # Build the release packages and install them where people will.
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: Install the .deb on Ubuntu
+        run: |
+          sudo apt-get install -y ./dist/glimpse_*_linux_amd64.deb
+          glimpse --version
+          test "$(printf 'a\nb\n' | glimpse | wc -l)" = 2
+      - name: Install the .deb on Debian
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" debian:stable sh -ec '
+            apt-get update -qq
+            apt-get install -y -qq /dist/glimpse_*_linux_amd64.deb
+            glimpse --version'
+      - name: Install the .rpm on Fedora
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:latest sh -ec '
+            dnf install -y -q /dist/glimpse_*_linux_amd64.rpm
+            glimpse --version'
+      - name: Build the AUR packages on Arch Linux
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" archlinux:latest sh -ec '
+            pacman -Syu --noconfirm --needed base-devel go >/dev/null
+            useradd -m build
+            for pkg in glimpse-pager glimpse-pager-bin; do
+              mkdir /home/build/$pkg
+              cp /dist/glimpse*.tar.gz /home/build/$pkg/
+              # Point the sources at the snapshot files instead of a release.
+              sed -E "s#::https://[^\"]*/#::file:///home/build/$pkg/#" /dist/aur/$pkg.pkgbuild > /home/build/$pkg/PKGBUILD
+            done
+            chown -R build /home/build
+            for pkg in glimpse-pager glimpse-pager-bin; do
+              su build -c "cd /home/build/$pkg && makepkg --noconfirm"
+              pacman -U --noconfirm /home/build/$pkg/$pkg-*.pkg.tar.zst
+              glimpse --version
+              pacman -R --noconfirm $pkg
+            done'
