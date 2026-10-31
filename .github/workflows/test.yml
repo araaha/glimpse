@@ -126,3 +126,8 @@ jobs:
           printf 'a\nb\n' | glimpse | grep -q b
           man -w glimpse
           test -e "$(brew --prefix)/share/zsh/site-functions/_glimpse"
+          brew install nushell
+          nu -c '$nu.vendor-autoload-dirs | to text' | grep -Fx "$(brew --prefix)/share/nushell/vendor/autoload"
+          nu -c "source $(brew --prefix)/share/nushell/vendor/autoload/glimpse.nu; help glimpse" | grep -q -- --retention
+          brew uninstall --cask glimpse
+          test ! -e "$(brew --prefix)/share/nushell/vendor/autoload/glimpse.nu"

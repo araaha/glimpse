@@ -149,6 +149,9 @@ homebrew_casks:
       bash: completions/glimpse.bash
       zsh: completions/_glimpse
       fish: completions/glimpse.fish
+    # Casks have no Nushell stanza. Homebrew's nushell autoloads this directory.
+    custom_block: |
+      artifact "completions/glimpse.nu", target: "#{HOMEBREW_PREFIX}/share/nushell/vendor/autoload/glimpse.nu"
     # The binary is not signed or notarized, so macOS would refuse to run it
     # ("glimpse is damaged and can't be opened") without this.
     hooks:
