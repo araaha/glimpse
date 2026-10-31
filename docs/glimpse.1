@@ -123,7 +123,7 @@ Always ignore case.
 Match case exactly.
 .TP
 .B \-\-incremental\-search
-Preview matches while typing a search.
+Preview matches while typing a search or filter.
 .TP
 .BR \-\-highlight\-search =\fIbool\fP
 Highlight visible matches (default true).
@@ -341,10 +341,24 @@ and
 go to the first matching line at or after line
 .IR N .
 .PP
+The filter's pattern also becomes the search: its matches are highlighted, and
+.B n
+and
+.B N
+repeat it.
+With
+.BR \-\-incremental\-search ,
+the matches on screen are highlighted while the pattern is typed,
+without filtering or moving the view;
+Esc brings back the earlier search.
+A file reloaded while filtered is filtered again
+without changing a search made since.
+.PP
 .B &
 followed by Enter, or
 .BR :nofilter ,
-shows every line again, keeping the line at the jump target in view.
+shows every line again, keeping the line at the jump target in view
+and the filter's pattern as the search.
 A new filter replaces the previous one.
 Styles do not carry over from a hidden line to the next one shown.
 Filtering is not available with

@@ -134,3 +134,99 @@ func TestRunFilterBottom(t *testing.T) {
 		return len(frame.Lines) == 4 && frame.Lines[3] == "line300001 hit" && frame.Gutter[3] == "300001"
 	})
 }
+
+// highlightsAt reports whether there are highlights and all of them lie in the
+// width columns from column. Highlights are one cell each.
+func highlightsAt(column, width int) func(ui.Frame) bool {
+	return func(frame ui.Frame) bool {
+		for _, highlight := range frame.Highlights {
+			if highlight.Column < column || highlight.Column+highlight.Width > column+width {
+				return false
+			}
+		}
+		return len(frame.Highlights) > 0
+	}
+}
+
+// A filter becomes the search, as in ov: its matches are highlighted, and
+// clearing the filter keeps it.
+func TestRunFilterBecomesTheSearch(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	input := numberedLines(30, func(line int) bool { return line%5 == 0 })
+	viewer := startTestViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch}, input, 20, 6)
+	viewer.press("/")
+	viewer.typeText("line")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, highlightsAt(0, 4))
+	viewer.press("&")
+	viewer.typeText("hit")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return linesAre("line05 hit", "line10 hit", "line15 hit", "line20 hit")(frame) && highlightsAt(7, 3)(frame) && len(frame.Highlights) == 12
+	})
+	viewer.press("&", "<Enter>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return frame.StatusState.Mode == ui.ModeView && len(frame.Lines) == 4 && frame.Lines[1] == "line06" && highlightsAt(7, 3)(frame)
+	})
+	// n repeats the filter's pattern forward: from the match on the jump-target
+	// row, as after any move, and then to the next one.
+	viewer.press("n", "n")
+	waitFrame(t, viewer.frames, firstFrameLine("line10 hit"))
+}
+
+// A reload refilters without replacing a search made after the filter.
+func TestRunFilterReloadKeepsTheLaterSearch(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	path, file := openFollowed(t, "keep 1\ndrop\nkeep 2\n")
+	viewer := startReaderViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch}, file, path, 20, 5, false)
+	viewer.press("&")
+	viewer.typeText("keep")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, highlightsAt(0, 4))
+	viewer.press("/")
+	viewer.typeText("[0-9]")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, highlightsAt(5, 1))
+	writeLog(t, path, "drop\nkeep 3\n", os.O_TRUNC)
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return linesAre("keep 3")(frame) && highlightsAt(5, 1)(frame)
+	})
+}
+
+// With incremental search, typing a filter highlights its matches without
+// filtering or moving the view, and Esc brings back the earlier search.
+func TestRunFilterPreviewHighlights(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	input := numberedLines(30, func(line int) bool { return line%2 == 0 })
+	options := Options{CmdHeight: ui.CmdHeightWithSearch, IncrementalSearch: true}
+	viewer := startTestViewer(t, options, input, 20, 6)
+	viewer.press("/")
+	viewer.typeText("line")
+	viewer.press("<Enter>")
+	waitFrame(t, viewer.frames, highlightsAt(0, 4))
+	viewer.press("&")
+	viewer.typeText("hit")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return frame.Search == "&hit" && frame.Lines[0] == "line01" && frame.Lines[1] == "line02 hit" && highlightsAt(7, 3)(frame)
+	})
+	// An invalid pattern keeps the last valid highlight.
+	viewer.typeText("(")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.Search == "&hit(" && highlightsAt(0, 4)(frame) })
+	viewer.press("<Esc>")
+	waitFrame(t, viewer.frames, func(frame ui.Frame) bool {
+		return frame.Search == "" && frame.Lines[0] == "line01" && highlightsAt(0, 4)(frame)
+	})
+}
+
+// Without incremental search, typing a filter changes nothing until Enter.
+func TestRunFilterNoPreviewWithoutIncremental(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	input := numberedLines(30, func(line int) bool { return line%2 == 0 })
+	viewer := startTestViewer(t, Options{CmdHeight: ui.CmdHeightWithSearch}, input, 20, 6)
+	viewer.press("&")
+	viewer.typeText("hit")
+	frame := waitFrame(t, viewer.frames, func(frame ui.Frame) bool { return frame.Search == "&hit" })
+	if len(frame.Highlights) != 0 {
+		t.Fatalf("highlights = %v", frame.Highlights)
+	}
+}

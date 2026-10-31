@@ -96,7 +96,7 @@ func newRoot(run runner, checkTerminal func(io.Writer) error) *cobra.Command {
 	root.Flags().Bool("smart-case", false, "ignore search case unless the query contains an uppercase letter")
 	root.Flags().Bool("ignore-case", false, "ignore search case, including uppercase queries")
 	root.Flags().Bool("case-sensitive", false, "match search case exactly")
-	root.Flags().Bool("incremental-search", false, "preview matches while editing a search")
+	root.Flags().Bool("incremental-search", false, "preview matches while editing a search or filter")
 	root.Flags().Bool("highlight-search", true, "highlight visible search matches")
 	root.Flags().Bool("regex", true, "treat searches as regular expressions (\\V in a search makes the rest literal)")
 	storage := pager.DefaultStorageOptions()

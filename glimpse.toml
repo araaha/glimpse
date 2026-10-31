@@ -74,7 +74,7 @@
 #ignore-case = false
 #case-sensitive = false
 
-# Preview matches while typing a search.
+# Preview matches while typing a search or filter.
 #incremental = false
 
 # Highlight visible matches.

@@ -391,10 +391,17 @@ func (s *session) execute(input string) (quit bool) {
 	return false
 }
 
-// applyFilter sets or clears the filter.
+// applyFilter sets or clears the filter. A filter that is set also becomes the
+// search, as in ov, so its matches are highlighted and n and N step through
+// them; clearing it keeps that search. Reloads refilter with setFilter alone,
+// leaving any later search in place.
 func (s *session) applyFilter(query string) (quit bool) {
 	if err := s.setFilter(query); err != nil {
 		s.search.message = fmt.Sprintf("Filter: %v", err)
+		return false
+	}
+	if query != "" && s.filtered() && s.filter.query == query {
+		s.search.query, s.search.backward, s.search.matched = query, false, false
 	}
 	return false
 }
@@ -402,7 +409,11 @@ func (s *session) applyFilter(query string) (quit bool) {
 // preview searches as the prompt is typed, with incremental search.
 func (s *session) preview() {
 	p := s.search.prompt
-	if p == nil || p.command || p.filter || !s.IncrementalSearch {
+	if p == nil || p.command || !s.IncrementalSearch {
+		return
+	}
+	if p.filter {
+		s.previewFilter(p)
 		return
 	}
 	s.clearPending()
@@ -422,6 +433,17 @@ func (s *session) preview() {
 	}
 	s.search.query, s.search.backward, s.search.matched = query, p.backward, false
 	s.startSearch(p.origin, p.backward, true)
+}
+
+// previewFilter highlights the matches of the filter being typed, without
+// filtering or moving the view; until the pattern is valid, the search the
+// prompt opened on stays.
+func (s *session) previewFilter(p *prompt) {
+	s.search.stop()
+	s.search.restore()
+	if query := string(p.text); query != "" && s.query(query).Validate() == nil {
+		s.search.query, s.search.backward, s.search.matched = query, false, false
+	}
 }
 
 // returnToOrigin undoes an incremental preview: back to the row the prompt

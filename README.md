@@ -285,8 +285,14 @@ followed log keeps up with new lines:
 journalctl -f | glimpse --follow   # then &error
 ```
 
+The filter's pattern also becomes the search, as in ov: its matches are
+highlighted, and `n` and `N` step through them. With `--incremental-search`,
+matches on screen are highlighted as you type the pattern, and Esc brings back
+the earlier search.
+
 Searches, `G` and `:N` work within the matching lines. `&` and Enter, or
-`:nofilter`, shows every line again with the same line in view.
+`:nofilter`, shows every line again with the same line in view, keeping the
+filter's pattern as the search.
 
 > [!NOTE]
 > Filtering is not available with `--retention=rolling`.
