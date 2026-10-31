@@ -16,7 +16,9 @@ type prompt struct {
 	cursor       int
 	backward     bool
 	command      bool
+	filter       bool
 	origin       int64
+	from         mark // where the view was, for '' after a search
 	follow       bool // the view was following when the prompt opened
 	history      []string
 	historyIndex int

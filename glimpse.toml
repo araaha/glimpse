@@ -137,7 +137,7 @@
 #line-numbers = { fg = "black", bg = "blue" }
 
 # The mode section can have its own colors in each mode: view, search,
-# follow and help. Unset modes use the mode section's colors, as they all do by
+# follow, filter and help. Unset modes use the mode section's colors, as they all do by
 # default; the per-mode colors here are examples.
 [statusline.styles.mode]
 #fg = "black"
@@ -146,6 +146,7 @@
 #search = { bg = "yellow" }
 #follow = { bg = "green" }
 #help = { bg = "magenta" }
+#filter = { bg = "cyan" }
 
 # Each action takes ONE key sequence, which replaces all of its default keys;
 # an empty list disables the action. Keys are written as in vim: <C-f>, <S-Tab>,
@@ -176,10 +177,13 @@
 #search-next = ["n"]
 #search-previous = ["N"]
 #command = [":"]
+#filter = ["&"]
+#set-mark = ["m"]                   # then the mark's letter
+#jump-to-mark = ["'"]               # then the mark's letter, or ' to go back
 #edit = ["v"]
 #help = ["g", "?"]
 
-# In the search and : prompts:
+# In the search, filter and : prompts:
 #search-accept = ["<Enter>"]                    # also <C-j>
 #search-cancel = ["<Esc>"]                      # also <C-c>, <C-g>
 #search-left = ["<Left>"]                       # also <C-b>

@@ -375,3 +375,38 @@ func TestUnifiedBindingsKeepModesIndependent(t *testing.T) {
 		t.Fatalf("prompt cancel = %v", got)
 	}
 }
+
+func TestArgumentActions(t *testing.T) {
+	matcher, err := Compile(map[string][]string{"set-mark": {"<M-m>"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed := func(keys ...Key) []Command {
+		var commands []Command
+		for _, key := range keys {
+			commands = append(commands, matcher.Feed(key)...)
+		}
+		return commands
+	}
+	// The key after the sequence is the argument, even one bound elsewhere,
+	// and no timeout fires while the argument is awaited.
+	if got := feed("'"); len(got) != 0 || matcher.NeedsTimeout() || !matcher.Pending() {
+		t.Fatalf("' alone = %v, timeout %v", got, matcher.NeedsTimeout())
+	}
+	if got := feed("j"); !reflect.DeepEqual(got, []Command{{Action: JumpToMark, Text: "j"}}) {
+		t.Fatalf("'j = %v", got)
+	}
+	if got := feed("<M-m>", "a", "j"); !reflect.DeepEqual(got, []Command{{Action: SetMark, Text: "a"}, {Action: Down}}) {
+		t.Fatalf("<M-m>aj = %v", got)
+	}
+	// Counts are dropped, and a named key abandons the action and acts itself.
+	if got := feed("3", "'", "<Esc>"); !reflect.DeepEqual(got, []Command{{Action: Cancel}}) {
+		t.Fatalf("3'<Esc> = %v", got)
+	}
+	if got := feed("'", "<Down>"); !reflect.DeepEqual(got, []Command{{Action: Down}}) {
+		t.Fatalf("'<Down> = %v", got)
+	}
+	if got := feed("m"); len(got) != 0 || matcher.Pending() {
+		t.Fatalf("the replaced m = %v", got)
+	}
+}

@@ -30,6 +30,8 @@ type session struct {
 	text             *ui.Text
 	loadedGeneration int64
 	search           searchState
+	filter           filterState
+	marks            markState
 	counts           *statusCounts
 	lineTotals       *lineCounts
 	runFailures      chan string // background run commands report failures here
@@ -51,6 +53,7 @@ type session struct {
 	pendingOffset    int64
 	hasPendingOffset bool
 	pendingSearch    bool // the pending offset is a search match, not a reflow anchor
+	pendingPlace     bool // the pending offset goes to the jump target, not the top
 	wantBottom       bool
 	bottomEnd        int64
 
@@ -96,7 +99,7 @@ func (a *App) newSession(ctx context.Context, screen tcell.Screen, name string) 
 		s.display, s.displayPath = ui.FormatFilename(name, a.FilenameStyle), true
 	}
 	var err error
-	if s.text, err = s.newText(); err != nil {
+	if s.text, err = s.newText(s.Document); err != nil {
 		return nil, err
 	}
 	s.search.results = make(chan searchResponse, 1)
@@ -112,11 +115,11 @@ func (s *session) close() error {
 	s.counts.close()
 	s.search.close()
 	s.indexWork.Stop()
-	return s.text.Close()
+	return errors.Join(s.stopFilter(), s.text.Close())
 }
 
-func (s *session) newText() (*ui.Text, error) {
-	text, err := ui.NewTextWithLimits(s.Document, s.metadataBudget, s.metadataQuota)
+func (s *session) newText(source ui.TextSource) (*ui.Text, error) {
+	text, err := ui.NewTextWithLimits(source, s.metadataBudget, s.metadataQuota)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +132,7 @@ func (s *session) newText() (*ui.Text, error) {
 // clearPending drops a jump that is still waiting for the index.
 func (s *session) clearPending() {
 	s.pendingLine, s.hasPendingOffset, s.wantBottom = 0, false, false
+	s.filter.pendingLine, s.filter.hasPendingOffset, s.filter.wantBottom = 0, false, false
 }
 
 // jumpTop places row at the jump target; the view never starts above row 0.
@@ -167,7 +171,7 @@ func (s *session) revealColumn(offset int64) {
 // line a reload returns to.
 func (s *session) targetLine() int {
 	row := min(s.view.top+s.JumpTarget.Row(s.layout.Body.Height), s.text.RowCount()-1)
-	return max(1, s.text.LogicalLineAt(s.text.Offset(max(0, row))))
+	return max(1, s.realLine(s.text.LogicalLineAt(s.text.Offset(max(0, row)))))
 }
 
 // reload starts over with a fresh index when the watched file was truncated
@@ -178,8 +182,11 @@ func (s *session) reload() error {
 	if generation == s.loadedGeneration {
 		return nil
 	}
-	keep := s.targetLine()
-	replacement, err := s.newText()
+	keep, query := s.targetLine(), s.filter.query
+	if err := s.stopFilter(); err != nil {
+		return err
+	}
+	replacement, err := s.newText(s.Document)
 	if err != nil {
 		return err
 	}
@@ -190,6 +197,11 @@ func (s *session) reload() error {
 	s.text, s.loadedGeneration = replacement, generation
 	s.search.stop()
 	s.search.matched, s.search.repeats = false, nil
+	s.view.top, s.left, s.gutterDigits, s.indexedWidth = 0, 0, 0, 0
+	s.body.lines, s.body.styled, s.previousLength = nil, nil, -1
+	if err := s.setFilter(query); err != nil {
+		return err
+	}
 	label := s.display
 	if label == "" {
 		label = "input"
@@ -197,10 +209,8 @@ func (s *session) reload() error {
 	s.search.message = fmt.Sprintf("%s %s; reloaded", label, reason)
 	s.clearPending()
 	if !s.view.follow {
-		s.pendingLine = keep // Following keeps the end in view instead.
+		s.jumpLine(keep) // Following keeps the end in view instead.
 	}
-	s.view.top, s.left, s.gutterDigits, s.indexedWidth = 0, 0, 0, 0
-	s.body.lines, s.body.styled, s.previousLength = nil, nil, -1
 	s.dirty = true
 	return nil
 }
@@ -210,16 +220,26 @@ func (s *session) lineKey() countKey {
 	return countKey{base: s.Document.Start(), end: s.Document.Len(), generation: s.loadedGeneration}
 }
 
+// searchKey names the current snapshot of the view for searches and counts.
+func (s *session) searchKey() countKey {
+	key := countKey{query: s.query(s.search.query), base: s.viewStart(), end: s.viewSource().Len(), generation: s.loadedGeneration}
+	if s.filtered() {
+		key.filter = s.filter.id
+	}
+	return key
+}
+
 // updateText extends the display index by one time slice and resolves
 // pending jumps it has reached.
 func (s *session) updateText() error {
 	if err := s.reload(); err != nil {
 		return err
 	}
+	s.updateFilter()
 	// Size the gutter first: the width it leaves is the width to index at, and
 	// the index about to be replaced still knows how many lines there are.
 	if s.LineNumbers {
-		lines := int64(s.text.LineCount())
+		lines := int64(s.realLine(s.text.LineCount()))
 		if total, ok := s.lineTotals.total(s.lineKey()); ok {
 			lines = total // Size the gutter once instead of restarting the index as it grows.
 		}
@@ -231,7 +251,7 @@ func (s *session) updateText() error {
 	s.text.SetWrap(s.Wrap)
 	reflow := s.indexedWidth != s.textWidth() || s.indexedWrap != s.Wrap
 	if reflow && s.indexedWidth != 0 && s.pendingLine == 0 && !s.hasPendingOffset && !s.wantBottom {
-		s.pendingOffset, s.hasPendingOffset, s.pendingSearch = anchor, true, false
+		s.pendingOffset, s.hasPendingOffset, s.pendingSearch, s.pendingPlace = anchor, true, false, false
 	}
 	if s.indexing() {
 		if err := s.text.UpdateFor(s.textWidth(), !s.reading, indexSlice); err != nil {
@@ -250,7 +270,7 @@ func (s *session) updateText() error {
 	}
 	if s.hasPendingOffset && (s.pendingOffset < s.text.Indexed() || !pending) {
 		s.view.top = s.text.RowAt(s.pendingOffset)
-		if s.pendingSearch {
+		if s.pendingSearch || s.pendingPlace {
 			s.view.top = s.jumpTop(s.view.top)
 			s.revealColumn(s.pendingOffset)
 		}
@@ -266,17 +286,23 @@ func (s *session) scheduleIndex() {
 }
 
 func (s *session) startSearch(origin int64, backward, include bool) {
-	key := countKey{query: s.query(s.search.query), base: s.Document.Start(), end: s.Document.Len(), generation: s.loadedGeneration}
+	key := s.searchKey()
 	chunks, indexed := s.counts.chunksFor(key)
-	s.search.start(s.ctx, s.Document, key.query, chunks, indexed, origin, s.text.SearchAnchor(origin), backward, include)
+	s.search.start(s.ctx, s.viewSource(), key.query, chunks, indexed, origin, s.text.SearchAnchor(origin), backward, include)
 }
 
 func (s *session) jumpBottom() {
 	s.clearPending()
 	s.view.follow, s.view.bottom = false, false
+	// Once input has ended, the last line is the last matching line, which
+	// the filter may not have found yet.
+	if s.filtered() && !s.reading && !s.filter.source.Final() {
+		s.filter.wantBottom = true
+		return
+	}
 	s.wantBottom = s.indexing()
 	if s.wantBottom {
-		s.bottomEnd = s.Document.Len()
+		s.bottomEnd = s.viewSource().Len()
 	} else {
 		s.view.apply(keybind.Bottom, s.text.RowCount(), s.layout.Body.Height)
 	}
@@ -288,7 +314,7 @@ func (s *session) searchDone(response searchResponse) {
 		return
 	}
 	s.search.busy = false
-	if response.result.Found && !response.available(s.Document.Start(), s.Document.Len()) {
+	if response.result.Found && !response.available(s.viewStart(), s.viewSource().Len()) {
 		response.result.Found = false
 		response.err = fmt.Errorf("match was discarded by rolling retention; repeat to search available history")
 		s.search.matched = false
@@ -301,7 +327,7 @@ func (s *session) searchDone(response searchResponse) {
 	} else {
 		s.search.match, s.search.matched = response.result.Offset, true
 		s.clearPending()
-		s.pendingOffset, s.hasPendingOffset, s.pendingSearch = s.search.match, true, true
+		s.pendingOffset, s.hasPendingOffset, s.pendingSearch, s.pendingPlace = s.search.match, true, true, false
 		if s.search.match < s.text.Indexed() {
 			s.view.top = s.jumpTop(s.text.RowAt(s.search.match))
 			s.revealColumn(s.search.match)
@@ -330,7 +356,7 @@ func (s *session) searchDone(response searchResponse) {
 // when anything changed.
 func (s *session) tick(now time.Time) (quit bool, err error) {
 	// A throttled recount may become due even when the viewport is idle.
-	if !s.search.busy && s.search.query != "" && s.counts.recountDue(now, s.Document.Len()) {
+	if !s.search.busy && s.search.query != "" && s.counts.recountDue(now, s.viewSource().Len()) {
 		s.dirty = true
 	}
 	if s.search.prompt != nil && s.SearchKeys.NeedsTimeout() && !now.Before(s.deadline) {
@@ -343,7 +369,8 @@ func (s *session) tick(now time.Time) (quit bool, err error) {
 			return true, nil
 		}
 	}
-	length := s.Document.Len()
+	s.updateFilter()
+	length := s.viewSource().Len()
 	generation, _ := s.Document.Generation()
 	if s.dirty || length != s.previousLength || s.Document.Paused() != s.previousPaused || s.Document.WatchStatus() != s.previousWatchStatus || generation != s.loadedGeneration {
 		if err := s.draw(length); err != nil {
@@ -379,7 +406,7 @@ func (s *session) draw(length int64) error {
 	s.text.SetLeft(s.left)
 	// A reflow restarts the row index, and until it reaches the old top row the
 	// rows at view.top are wherever indexing has got to. Keep the last body.
-	frozen := s.hasPendingOffset && !s.pendingSearch && s.body.lines != nil && s.help == nil
+	frozen := s.hasPendingOffset && !s.pendingSearch && !s.pendingPlace && s.body.lines != nil && s.help == nil
 	// While G is pending, only progress/status changes. Reuse an already
 	// complete, immutable starting viewport instead of decoding it at 60 Hz.
 	cached := frozen || s.wantBottom && s.body.layout == s.layout && s.body.left == s.left && s.body.offset == top && s.body.base == discarded && s.view.top+s.layout.Body.Height < s.previousRows
@@ -400,14 +427,14 @@ func (s *session) draw(length int64) error {
 	if s.search.matched {
 		target = s.search.match
 	}
-	key := countKey{query: s.query(s.search.query), base: discarded, end: s.Document.Len(), generation: s.loadedGeneration}
+	key := s.searchKey()
 	state := s.status(top, target, key, indexing)
 	if frozen {
 		state.TopLine = s.body.topLine
 	}
 	bar := s.Statusline.Format(state, s.layout.Body.Width, s.wideAmbiguous)
 	s.counts.visible = s.layout.StatusRow >= 0 && bar.Has(ui.StatusSearchResults)
-	s.counts.update(s.ctx, s.Document, key, target, s.search.matched, s.search.busy || s.hasPendingOffset)
+	s.counts.update(s.ctx, s.viewSource(), key, target, s.search.matched, s.search.busy || s.hasPendingOffset)
 	frame := ui.Frame{
 		Layout: s.layout, Lines: lines, Styled: styled,
 		Status: bar.Text(), StatusBar: bar, StatusState: state,
@@ -443,9 +470,13 @@ func (s *session) draw(length int64) error {
 func (s *session) status(top, target int64, key countKey, indexing bool) ui.StatusState {
 	state := ui.StatusState{
 		Mode: ui.ModeView, Filename: s.display, FilenamePath: s.displayPath, HasSearch: s.search.query != "",
-		TopLine: s.text.LogicalLineAt(top), TotalLines: s.text.LineCount(), TotalLinesKnown: !s.reading && !indexing,
+		TopLine: s.realLine(s.text.LogicalLineAt(top)), TotalLines: s.text.LineCount(), TotalLinesKnown: !s.reading && !indexing,
 	}
-	if !s.reading && indexing {
+	if s.filtered() {
+		// Totals count the document's lines; the filtered index has fewer.
+		state.TotalLines, state.TotalLinesKnown = s.filter.plain.LineCount(), false
+	}
+	if !s.reading && (indexing || s.filtered()) {
 		// The display index is still decoding; a newline count finishes far sooner.
 		s.lineTotals.request(s.ctx, s.Document, s.lineKey())
 		if total, ok := s.lineTotals.total(s.lineKey()); ok {
@@ -460,6 +491,8 @@ func (s *session) status(top, target int64, key countKey, indexing bool) ui.Stat
 		state.Mode = ui.ModeSearch
 	case s.view.follow:
 		state.Mode = ui.ModeFollow
+	case s.filtered():
+		state.Mode = ui.ModeFilter
 	}
 	return state
 }
@@ -494,7 +527,7 @@ func (s *session) decorate(frame *ui.Frame, query search.Query) {
 		frame.Gutter = make([]string, len(frame.Lines))
 		for row := range frame.Lines {
 			if line, first := s.text.LineNumberAt(s.view.top + row); first {
-				frame.Gutter[row] = strconv.Itoa(line)
+				frame.Gutter[row] = strconv.Itoa(s.realLine(line))
 			}
 		}
 	}
@@ -515,6 +548,9 @@ func (s *session) showPrompt(frame *ui.Frame) {
 	prefix := "/"
 	if p.backward {
 		prefix = "?"
+	}
+	if p.filter {
+		prefix = "&"
 	}
 	if p.command {
 		prefix = ":"

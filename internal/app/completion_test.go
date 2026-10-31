@@ -65,7 +65,7 @@ func TestCompletionOptionsAreAccepted(t *testing.T) {
 		}
 	}
 	for _, name := range commandNames {
-		if name == "set" {
+		if name == "set" || name == "filter" || name == "delmarks" { // These take an argument.
 			continue
 		}
 		if _, err := application.command(name); err != nil {

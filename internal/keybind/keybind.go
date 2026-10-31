@@ -30,6 +30,9 @@ const (
 	SearchNext         Action = "search-next"
 	SearchPrevious     Action = "search-previous"
 	CommandInput       Action = "command"
+	FilterInput        Action = "filter"
+	SetMark            Action = "set-mark"
+	JumpToMark         Action = "jump-to-mark"
 	ToggleWrap         Action = "toggle-wrap"
 	ScrollLeft         Action = "scroll-left"
 	ScrollRight        Action = "scroll-right"
@@ -57,6 +60,10 @@ const (
 	Complete           Action = "search-complete"
 	CompletePrevious   Action = "search-complete-previous"
 )
+
+// Arguments are the actions that take the key typed after their sequence,
+// such as the name of a mark, as Command.Text.
+var Arguments = map[Action]bool{SetMark: true, JumpToMark: true}
 
 type Binding struct {
 	Action Action
@@ -92,6 +99,9 @@ func Defaults() []Binding {
 		{SearchNext, []Key{"n"}},
 		{SearchPrevious, []Key{"N"}},
 		{CommandInput, []Key{":"}},
+		{FilterInput, []Key{"&"}},
+		{SetMark, []Key{"m"}},
+		{JumpToMark, []Key{"'"}},
 		{ToggleWrap, []Key{"w"}},
 		{ScrollLeft, []Key{"h"}},
 		{ScrollLeft, []Key{"<Left>"}},
@@ -302,6 +312,9 @@ var Descriptions = map[Action]string{
 	SearchNext:         "repeat the search",
 	SearchPrevious:     "repeat the search in the opposite direction",
 	CommandInput:       "enter a : command",
+	FilterInput:        "show only lines matching a pattern; empty shows every line",
+	SetMark:            "mark the line at the jump target: m then a letter",
+	JumpToMark:         "go to a marked line: ' then a letter, or ' for the previous position",
 	ToggleWrap:         "toggle line wrapping",
 	ScrollLeft:         "scroll unwrapped lines left",
 	ScrollRight:        "scroll unwrapped lines right",

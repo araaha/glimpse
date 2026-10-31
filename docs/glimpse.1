@@ -161,7 +161,8 @@ The files are unlinked as soon as they are created, so they never outlive glimps
 Row and line index bytes kept in memory (default 8 MiB).
 .TP
 .BI \-\-metadata\-quota " BYTES"
-Maximum row and line index size (default 256 MiB).
+Maximum row and line index size (default 256 MiB),
+which also bounds the list of matching lines of a filter.
 .TP
 .BI \-\-chunk\-size " BYTES"
 Allocation unit for buffered input (default 64 KiB).
@@ -219,6 +220,33 @@ Search forward / backward.
 .TP
 .BR n " / " N
 Repeat the search in the same / opposite direction.
+.TP
+.B &
+Show only lines matching a pattern; an empty pattern shows every line again.
+See
+.BR FILTERING .
+.TP
+.BI m x
+Mark the line at the jump target as
+.IR x ,
+a letter from a to z.
+.TP
+.BI \(aq x
+Go to mark
+.IR x ,
+placing it at the jump target.
+.B \(aq\(aq
+goes back to where the last jump started:
+a search,
+.BR n ,
+.BR N ,
+.BR gg ,
+.BR G ,
+.BR : N,
+or a mark.
+Marks keep their place through wrapping, filters, and appended input;
+after a reload replaces the content, they go to their line number.
+While filtered, a mark on a hidden line goes to the next matching line.
 .TP
 .B :
 Enter a command.
@@ -294,6 +322,33 @@ such as
 .B \eS
 or
 .BR \ep{Lu} .
+.SH FILTERING
+.B &
+followed by a pattern shows only the lines that hold a match,
+with the same pattern syntax and case options as a search.
+The mode section shows
+.BR FILTER ,
+and line numbers, the statusline, and
+.B $line
+keep the numbers of the lines in the input.
+Searches,
+.BR G ,
+and following work within the matching lines,
+which appear as they are found, also while the input grows.
+.BI : N
+and
+.IB N G
+go to the first matching line at or after line
+.IR N .
+.PP
+.B &
+followed by Enter, or
+.BR :nofilter ,
+shows every line again, keeping the line at the jump target in view.
+A new filter replaces the previous one.
+Styles do not carry over from a hidden line to the next one shown.
+Filtering is not available with
+.BR "\-\-retention rolling" .
 .SH COMMANDS
 .TP 22
 .BI : N
@@ -302,6 +357,21 @@ Go to line
 .TP
 .BR :top ", " :bottom
 Go to the first or last line.
+.TP
+.BI ":filter " PATTERN
+Show only lines matching
+.IR PATTERN ;
+see
+.BR FILTERING .
+.TP
+.B :nofilter
+Show every line again.
+.TP
+.B :marks
+List the marks with their line numbers and text.
+.TP
+.BI ":delmarks " "x y" "\fR, \fP:delmarks!"
+Delete the named marks, or all of them.
 .TP
 .BR :q ", " :quit
 Quit.
@@ -452,6 +522,7 @@ the tables
 .BR view ,
 .BR search ,
 .BR follow ,
+.BR filter ,
 and
 .B help
 override those colors in that mode, e.g.
@@ -466,7 +537,8 @@ an empty array disables it.
 View actions:
 quit, cancel, top, bottom, up, down, page\-up, page\-down, half\-page\-up,
 half\-page\-down, follow, toggle\-status, search\-forward, search\-backward,
-search\-next, search\-previous, command, toggle\-wrap, scroll\-left,
+search\-next, search\-previous, command, filter, set\-mark, jump\-to\-mark,
+toggle\-wrap, scroll\-left,
 scroll\-right, toggle\-line\-numbers, toggle\-hex\-colors, edit, help.
 Prompt actions:
 search\-accept, search\-cancel, search\-left, search\-right, search\-start,
@@ -537,7 +609,7 @@ Default label for standard input, set by
 Location of the configuration directory.
 .TP
 .B XDG_DATA_HOME
-Location of the search and command histories.
+Location of the search, filter, and command histories.
 .TP
 .B XDG_CACHE_HOME
 Location of the default spool directory.
@@ -550,7 +622,7 @@ Spool directory when the cache directory is unavailable.
 Configuration.
 .TP
 .I $XDG_DATA_HOME/glimpse/
-Search and command history.
+Search, filter, and command history.
 .SH EXAMPLES
 Use
 .B glimpse

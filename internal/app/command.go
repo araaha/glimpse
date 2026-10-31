@@ -13,6 +13,11 @@ type commandResult struct {
 	action  keybind.Action
 	line    int
 	message string
+	filter  bool // set the filter to query, or clear it when query is empty
+	query   string
+
+	listMarks   bool
+	deleteMarks string // mark names, or "!" for all of them
 }
 
 // optionName resolves a boolean :set option or its vim short name, returning
@@ -39,8 +44,33 @@ func (a *App) command(input string) (commandResult, error) {
 	if len(fields) == 0 {
 		return commandResult{}, nil
 	}
+	if name, pattern, _ := strings.Cut(strings.TrimLeft(input, " \t"), " "); name == "filter" {
+		if pattern = strings.TrimSpace(pattern); pattern == "" {
+			return commandResult{}, fmt.Errorf("filter requires a pattern; :nofilter clears it")
+		}
+		return commandResult{filter: true, query: pattern}, nil
+	}
+	if fields[0] == "delmarks!" && len(fields) == 1 {
+		return commandResult{deleteMarks: "!"}, nil
+	}
+	if fields[0] == "delmarks" {
+		names := strings.Join(fields[1:], "")
+		if names == "" {
+			return commandResult{}, fmt.Errorf("delmarks requires mark names, or delmarks! for all")
+		}
+		for _, name := range names {
+			if !validMark(string(name)) {
+				return commandResult{}, fmt.Errorf("marks are named a to z")
+			}
+		}
+		return commandResult{deleteMarks: names}, nil
+	}
 	if len(fields) == 1 {
 		switch fields[0] {
+		case "nofilter":
+			return commandResult{filter: true}, nil
+		case "marks":
+			return commandResult{listMarks: true}, nil
 		case "q", "quit":
 			return commandResult{quit: true}, nil
 		case "top":

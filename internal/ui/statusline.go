@@ -29,9 +29,10 @@ const (
 	ModeSearch = "SEARCH"
 	ModeFollow = "FOLLOW"
 	ModeHelp   = "HELP"
+	ModeFilter = "FILTER"
 )
 
-var Modes = []string{ModeView, ModeSearch, ModeFollow, ModeHelp}
+var Modes = []string{ModeView, ModeSearch, ModeFollow, ModeHelp, ModeFilter}
 
 type StatuslineConfig struct {
 	Left, Right                   []string // nil inherits defaults; an empty array disables a side.

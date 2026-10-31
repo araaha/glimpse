@@ -52,6 +52,10 @@ func helpLines(view, prompt *keybind.Matcher, runs map[keybind.Action]RunCommand
 	sections = append(sections, section{"Commands", [][2]string{
 		{":N", "go to line N"},
 		{":top  :bottom", "go to the first or last line"},
+		{":filter PATTERN", "show only lines matching PATTERN"},
+		{":nofilter", "show every line again"},
+		{":marks", "list the marks"},
+		{":delmarks a b  :delmarks!", "delete marks, or all of them"},
 		{":q  :quit", "quit"},
 		{":set OPTION", "enable ignorecase (ic), smartcase (scs),"},
 		{":set noOPTION", "  incsearch (is), hlsearch (hls), magic,"},
