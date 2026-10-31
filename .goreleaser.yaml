@@ -132,6 +132,32 @@ aur_sources:
       install -Dm644 glimpse.toml "${pkgdir}/usr/share/doc/${pkgname}/glimpse.toml"
       install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
+# brew install --cask araaha/tap/glimpse. Needs the HOMEBREW_TAP_TOKEN secret,
+# which can write to github.com/araaha/homebrew-tap.
+homebrew_casks:
+  - name: glimpse
+    repository:
+      owner: araaha
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/araaha/glimpse
+    description: A terminal pager for files and streams
+    license: GPL-3.0-or-later
+    skip_upload: auto
+    manpages: [docs/glimpse.1]
+    completions:
+      bash: completions/glimpse.bash
+      zsh: completions/_glimpse
+      fish: completions/glimpse.fish
+    # The binary is not signed or notarized, so macOS would refuse to run it
+    # ("glimpse is damaged and can't be opened") without this.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/glimpse"]
+          end
+
 # The source tarball the glimpse-pager AUR package builds from.
 source:
   enabled: true

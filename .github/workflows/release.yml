@@ -27,3 +27,5 @@ jobs:
           # SSH key of the AUR account that publishes glimpse-pager and
           # glimpse-pager-bin.
           AUR_KEY: ${{ secrets.AUR_KEY }}
+          # Fine-grained token with Contents read and write on araaha/homebrew-tap.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
