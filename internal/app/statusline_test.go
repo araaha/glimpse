@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/araaha/glimpse/internal/search"
 	"github.com/araaha/glimpse/internal/ui"
@@ -151,5 +152,26 @@ func TestRunStatuslineOmitsStdinAndHandlesEmptyInput(t *testing.T) {
 		}
 		viewer.press("q")
 		viewer.expectExit(t)
+	}
+}
+
+// A search shows SEARCH only once it outlasts searchModeDelay, so repeats that
+// resolve quickly, as when n is held, don't flash it between matches.
+func TestSearchWaitingDelaysSearchMode(t *testing.T) {
+	now := time.Now()
+	var s session
+	if s.searchWaiting(now) {
+		t.Fatal("idle session reports a search wait")
+	}
+	s.search.busy, s.search.since = true, now
+	if s.searchWaiting(now.Add(searchModeDelay - time.Millisecond)) {
+		t.Fatal("a search shorter than the delay shows SEARCH")
+	}
+	if !s.searchWaiting(now.Add(searchModeDelay)) {
+		t.Fatal("a search past the delay doesn't show SEARCH")
+	}
+	s.search.busy, s.pendingSearch, s.hasPendingOffset = false, true, true
+	if !s.searchWaiting(now.Add(searchModeDelay)) {
+		t.Fatal("a match waiting for the index past the delay doesn't show SEARCH")
 	}
 }

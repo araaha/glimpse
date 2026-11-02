@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/araaha/glimpse/internal/search"
 )
@@ -32,7 +33,8 @@ type searchState struct {
 	match          int64
 	matched        bool
 	busy           bool
-	repeats        []bool // Directions queued while a worker is resolving a match.
+	since          time.Time // when the running search began
+	repeats        []bool    // Directions queued while a worker is resolving a match.
 	message        string
 	warning        string
 	echo           bool // Repeat the query in the footer; mode -1 shows status instead.
@@ -110,7 +112,7 @@ func (s *searchState) echoQuery() string {
 func (s *searchState) start(ctx context.Context, source search.Source, query search.Query, chunks search.Chunks, indexed bool, origin, anchor int64, backward, include bool) {
 	repeats := s.repeats
 	s.stop()
-	s.repeats, s.busy = repeats, true
+	s.repeats, s.busy, s.since = repeats, true, time.Now()
 	ctx, s.cancel = context.WithCancel(ctx)
 	generation := s.generation
 	s.message = s.echoQuery()

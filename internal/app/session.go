@@ -69,6 +69,7 @@ type session struct {
 	previousIndexed     int64
 	previousPaused      bool
 	previousWatchStatus string
+	previousMode        string
 	body                bodyCache
 }
 
@@ -359,6 +360,10 @@ func (s *session) tick(now time.Time) (quit bool, err error) {
 	if !s.search.busy && s.search.query != "" && s.counts.recountDue(now, s.viewSource().Len()) {
 		s.dirty = true
 	}
+	// A wait that outlasts searchModeDelay now shows SEARCH.
+	if s.help == nil && s.previousMode != ui.ModeSearch && s.searchWaiting(now) {
+		s.dirty = true
+	}
 	if s.search.prompt != nil && s.SearchKeys.NeedsTimeout() && !now.Before(s.deadline) {
 		if s.applyPrompt(s.SearchKeys.Flush()) {
 			return true, nil
@@ -432,6 +437,7 @@ func (s *session) draw(length int64) error {
 	if frozen {
 		state.TopLine = s.body.topLine
 	}
+	s.previousMode = state.Mode
 	bar := s.Statusline.Format(state, s.layout.Body.Width, s.wideAmbiguous)
 	s.counts.visible = s.layout.StatusRow >= 0 && bar.Has(ui.StatusSearchResults)
 	s.counts.update(s.ctx, s.viewSource(), key, target, s.search.matched, s.search.busy || s.hasPendingOffset)
@@ -487,7 +493,7 @@ func (s *session) status(top, target int64, key countKey, indexing bool) ui.Stat
 	switch {
 	case s.help != nil:
 		state.Mode = ui.ModeHelp
-	case s.search.busy || s.search.prompt != nil && !s.search.prompt.command || s.pendingSearch && s.hasPendingOffset:
+	case s.search.prompt != nil && !s.search.prompt.command || s.searchWaiting(time.Now()):
 		state.Mode = ui.ModeSearch
 	case s.view.follow:
 		state.Mode = ui.ModeFollow
@@ -495,6 +501,17 @@ func (s *session) status(top, target int64, key countKey, indexing bool) ui.Stat
 		state.Mode = ui.ModeFilter
 	}
 	return state
+}
+
+// searchModeDelay is how long a search, or the indexing its match waits for,
+// runs before the statusline shows SEARCH. Most searches finish well within
+// it, and without it holding n would flash SEARCH between matches.
+const searchModeDelay = 150 * time.Millisecond
+
+// searchWaiting reports a search, or a jump to its match, that has been
+// pending for at least searchModeDelay.
+func (s *session) searchWaiting(now time.Time) bool {
+	return (s.search.busy || s.pendingSearch && s.hasPendingOffset) && now.Sub(s.search.since) >= searchModeDelay
 }
 
 // footer is the message row outside the prompt: the latest message, unless
